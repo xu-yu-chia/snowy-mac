@@ -4,14 +4,17 @@ public final class SnowSimulation {
     public let size: SIMD2<Float>
     public let budget: SimulationBudget
     public internal(set) var flakes: [SnowParticle] = []
-    public let looseSnow: GranularSnow
-    let contour: GranularContour
+    public internal(set) var looseSnow: GranularSnow
+    var contour: GranularContour
     public internal(set) var drifts: [SnowDrift] = []
     public internal(set) var mesh: [SnowVertex] = []
     public internal(set) var elevatedMeshRanges: [Range<Int>] = []
     public internal(set) var meshRevision: UInt64 = 0
     public var snowfall: Snowfall = .steady
     public var melting: Melting = .off
+    public var grainSize: GrainSize = .normal {
+        didSet { if grainSize != oldValue { rebuildGranularField() } }
+    }
     static let accumulationPace: Float = 0.3
     public var reducedMotion = false
     public var particleScale: Float = 1

@@ -33,6 +33,13 @@ final class DesktopCoordinator {
             onStateChange?()
         }
     }
+    var grainSize: GrainSize {
+        didSet {
+            UserDefaults.standard.set(grainSize.rawValue, forKey: "grainSize")
+            for display in displays { display.renderer.simulation.grainSize = grainSize }
+            onStateChange?()
+        }
+    }
     var wind: WindSettings {
         didSet {
             UserDefaults.standard.set(wind.vector.x, forKey: "windX")
@@ -101,6 +108,7 @@ final class DesktopCoordinator {
         paused = UserDefaults.standard.bool(forKey: "paused")
         snowfall = Snowfall(rawValue: UserDefaults.standard.string(forKey: "snowfall") ?? "") ?? .steady
         melting = Melting(rawValue: UserDefaults.standard.string(forKey: "melting") ?? "") ?? .off
+        grainSize = GrainSize(rawValue: UserDefaults.standard.string(forKey: "grainSize") ?? "") ?? .normal
         wind = WindSettings(vector: SIMD2(UserDefaults.standard.float(forKey: "windX"),
                                          UserDefaults.standard.float(forKey: "windY")))
         tool = SnowTool(rawValue: UserDefaults.standard.string(forKey: "cursorTool") ?? "") ?? .glove
@@ -264,6 +272,7 @@ final class DesktopCoordinator {
                                                  budget: budget, seed: UInt64(geometry.id))
                 renderer.simulation.snowfall = snowfall
                 renderer.simulation.melting = melting
+                renderer.simulation.grainSize = grainSize
                 renderer.simulation.wind = wind
                 renderer.simulation.tool = tool
                 let panel = SnowPanel(contentRect: frame, styleMask: [.borderless, .nonactivatingPanel],

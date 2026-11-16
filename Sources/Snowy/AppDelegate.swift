@@ -9,6 +9,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSM
     private let stateItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
     private var weatherItems: [NSMenuItem] = []
     private var meltingItems: [NSMenuItem] = []
+    private var grainItems: [NSMenuItem] = []
     private var windPopover: NSPopover?
     private var toolItems: [NSMenuItem] = []
     private var welcomeWindow: WelcomeWindowController?
@@ -140,6 +141,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSM
         let meltingItem = NSMenuItem(title: "Melting", action: nil, keyEquivalent: "")
         meltingItem.submenu = meltingMenu
         menu.addItem(meltingItem)
+        let grainMenu = NSMenu()
+        for (index, grain) in GrainSize.allCases.enumerated() {
+            let option = NSMenuItem(title: grain.rawValue, action: #selector(setGrainSize(_:)), keyEquivalent: "")
+            option.target = self
+            option.tag = index
+            grainItems.append(option)
+            grainMenu.addItem(option)
+        }
+        let grainItem = NSMenuItem(title: "Grain Size", action: nil, keyEquivalent: "")
+        grainItem.submenu = grainMenu
+        menu.addItem(grainItem)
         let wind = NSMenuItem(title: "Wind…", action: #selector(showWind), keyEquivalent: "w")
         wind.target = self
         menu.addItem(wind)
@@ -219,6 +231,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSM
         for (index, item) in meltingItems.enumerated() {
             item.state = Melting.allCases[index] == coordinator.melting ? .on : .off
         }
+        for (index, item) in grainItems.enumerated() {
+            item.state = GrainSize.allCases[index] == coordinator.grainSize ? .on : .off
+        }
         for (index, item) in toolItems.enumerated() {
             item.state = (index == 1 ? coordinator.tool == .shovel : coordinator.tool == .glove) ? .on : .off
         }
@@ -262,5 +277,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSM
     @objc private func setMelting(_ sender: NSMenuItem) {
         guard Melting.allCases.indices.contains(sender.tag) else { return }
         coordinator?.melting = Melting.allCases[sender.tag]
+    }
+    @objc private func setGrainSize(_ sender: NSMenuItem) {
+        guard GrainSize.allCases.indices.contains(sender.tag) else { return }
+        coordinator?.grainSize = GrainSize.allCases[sender.tag]
     }
 }

@@ -218,6 +218,28 @@ extension SnowSimulation {
     }
 
 
+    /// Rebuilds the granular grid at the current grain size and carries every existing grain to
+    /// the same place in it. Area the new grid cannot hold at once is queued for retry.
+    func rebuildGranularField() {
+        let old = looseSnow
+        let field = GranularSnow(size: size, maxCells: budget.cells * 32, maxActive: budget.maximumGranules,
+                                 pitchScale: grainSize.scale)
+        field.setBodies(bodies)
+        for index in old.active where old.mass[index] > 0.0001 {
+            let point = old.position(of: index)
+            let rest = field.add(mass: old.mass[index], at: point)
+            if rest > 0.0001 {
+                retainRelease(SnowRelease(position: point, height: field.cellSize, mass: rest), in: &snowReleases)
+            }
+        }
+        looseSnow = field
+        contour = GranularContour(field: field)
+        meshDirty = true
+        interactionDirty = true
+        if !batchingScene { rebuildMesh() }
+    }
+
+
     /// A window or widget cap that snowfall has filled sheds an occasional chunk off its ends.
     /// The chunk leaves just outside the support and falls as granular snow beside it. The
     /// floor, the Dock ridge and Spotlight's temporary cap never shed.

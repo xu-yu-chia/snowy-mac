@@ -46,7 +46,8 @@ public final class GranularSnow {
         searchOrigin = nil
     }
 
-    public init(size input: SIMD2<Float>, maxCells: Int, maxActive: Int) {
+    /// `pitchScale` enlarges grains beyond the finest pitch the cell budget allows (never smaller).
+    public init(size input: SIMD2<Float>, maxCells: Int, maxActive: Int, pitchScale: Float = 1) {
         let width = input.x.isFinite ? max(1, min(65_536, input.x)) : 1
         let height = input.y.isFinite ? max(1, min(65_536, input.y)) : 1
         size = SIMD2(width, height)
@@ -59,7 +60,8 @@ public final class GranularSnow {
             mass = []; output = []; incoming = []; listed = []; solids = []; difference = []; visited = []
             return
         }
-        var pitch = max(3, sqrt(width * height / Float(budget)))
+        let scale = pitchScale.isFinite ? max(1, min(4, pitchScale)) : 1
+        var pitch = max(3, sqrt(width * height / Float(budget))) * scale
         var countX = max(1, Int(ceil(width / pitch)))
         var countY = max(1, Int(ceil(height / pitch)))
         while countX * countY > budget {

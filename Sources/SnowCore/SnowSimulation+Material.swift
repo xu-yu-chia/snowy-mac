@@ -225,8 +225,11 @@ extension SnowSimulation {
         guard budget.cells > 0 else { return }
         for drift in drifts where drift.surface.id != DesktopSceneBuilder.groundID
             && !drift.surface.isDock && !drift.surface.isElevated && !drift.surface.releasesSnowWhenRemoved {
-            // Each full cap sheds about once every 1.25 s on average.
-            guard drift.fillRatio >= 0.95, random.unit() < 0.08 else { continue }
+            // Each full cap sheds about once every 1.25 s on average; a cap carrying snow above
+            // its capacity (pushed or landed on it) sheds about every 0.3 s until relieved.
+            let overloaded = drift.isOverloaded
+            guard overloaded || drift.fillRatio >= 0.95,
+                  random.unit() < (overloaded ? 0.3 : 0.08) else { continue }
             for end in drift.shedEnds(fraction: 0.25, band: 40) {
                 let outward: Float = end.localX <= 0 ? -1 : 1
                 let x = drift.surface.x + end.localX + outward * 3

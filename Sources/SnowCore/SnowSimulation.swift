@@ -12,6 +12,7 @@ public final class SnowSimulation {
     public internal(set) var meshRevision: UInt64 = 0
     public var snowfall: Snowfall = .steady
     public var melting: Melting = .off
+    static let accumulationPace: Float = 0.3
     public var reducedMotion = false
     public var particleScale: Float = 1
     public var wind = WindSettings() {
@@ -149,7 +150,9 @@ public final class SnowSimulation {
             previousCursor = cursor
         } else { previousCursor = nil }
 
-        for drift in drifts { drift.accumulate(dt: dt, intensity: snowfall.density) }
+        // Settled snow grows at a pace that matches the visible snowfall: about a third of the
+        // original rate, so a Steady cap takes minutes rather than ~40 s to fill.
+        for drift in drifts { drift.accumulate(dt: dt, intensity: snowfall.density * Self.accumulationPace) }
         if melting.rate > 0 {
             for drift in drifts { drift.melt(fraction: melting.rate * dt) }
             meshDirty = true

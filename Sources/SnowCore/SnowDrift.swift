@@ -131,6 +131,42 @@ public final class SnowDrift {
             scratch[to] += transfer
         }
         swap(&heights, &scratch)
+        creepOverload()
+    }
+
+    /// Snow above capacity creeps one sample toward the nearer end per settle, so an
+    /// overloaded hump drifts to the edge where `shedEnds` lets it slide off.
+    private func creepOverload() {
+        guard heights.count >= 2 else { return }
+        let middle = Float(heights.count - 1) / 2
+        for i in heights.indices { scratch[i] = heights[i] }
+        for i in heights.indices where heights[i] > capacities[i] + 0.001 {
+            let j = Float(i) < middle ? i - 1 : i + 1
+            guard heights.indices.contains(j) else { continue }
+            let excess = (heights[i] - capacities[i]) * 0.3
+            scratch[i] -= excess
+            scratch[j] += excess
+        }
+        swap(&heights, &scratch)
+    }
+
+    var isOverloaded: Bool {
+        heights.indices.contains { heights[$0] > capacities[$0] + 0.001 }
+    }
+
+    /// Snow that no longer fits (pushed or landed onto a full cap) joins the profile above
+    /// capacity instead of sitting on it as separate grains.
+    func addOverload(at localX: Float, mass: Float) {
+        guard mass.isFinite, mass > 0, !heights.isEmpty else { return }
+        let center = max(0, min(heights.count - 1, Int((localX / spacing).rounded())))
+        var placed: Float = 0
+        for (offset, weight) in [(0, Float(0.4)), (-1, 0.2), (1, 0.2), (-2, 0.1), (2, 0.1)] {
+            let i = center + offset
+            guard heights.indices.contains(i) else { continue }
+            heights[i] += mass * weight / spacing
+            placed += weight
+        }
+        heights[center] += mass * (1 - placed) / spacing
     }
 
     /// How full the pile is relative to what snowfall alone can build (1 = snowfall has stopped).

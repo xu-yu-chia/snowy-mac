@@ -26,6 +26,13 @@ final class DesktopCoordinator {
             onStateChange?()
         }
     }
+    var melting: Melting {
+        didSet {
+            UserDefaults.standard.set(melting.rawValue, forKey: "melting")
+            for display in displays { display.renderer.simulation.melting = melting }
+            onStateChange?()
+        }
+    }
     var wind: WindSettings {
         didSet {
             UserDefaults.standard.set(wind.vector.x, forKey: "windX")
@@ -93,6 +100,7 @@ final class DesktopCoordinator {
         context = try MetalContext()
         paused = UserDefaults.standard.bool(forKey: "paused")
         snowfall = Snowfall(rawValue: UserDefaults.standard.string(forKey: "snowfall") ?? "") ?? .steady
+        melting = Melting(rawValue: UserDefaults.standard.string(forKey: "melting") ?? "") ?? .off
         wind = WindSettings(vector: SIMD2(UserDefaults.standard.float(forKey: "windX"),
                                          UserDefaults.standard.float(forKey: "windY")))
         tool = SnowTool(rawValue: UserDefaults.standard.string(forKey: "cursorTool") ?? "") ?? .glove
@@ -255,6 +263,7 @@ final class DesktopCoordinator {
                 let renderer = try MetalRenderer(context: context, size: frame.size, menuInset: geometry.menuInset,
                                                  budget: budget, seed: UInt64(geometry.id))
                 renderer.simulation.snowfall = snowfall
+                renderer.simulation.melting = melting
                 renderer.simulation.wind = wind
                 renderer.simulation.tool = tool
                 let panel = SnowPanel(contentRect: frame, styleMask: [.borderless, .nonactivatingPanel],

@@ -8,6 +8,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSM
     private let pauseItem = NSMenuItem(title: "Pause Snow", action: #selector(togglePause), keyEquivalent: "p")
     private let stateItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
     private var weatherItems: [NSMenuItem] = []
+    private var meltingItems: [NSMenuItem] = []
     private var windPopover: NSPopover?
     private var toolItems: [NSMenuItem] = []
     private var welcomeWindow: WelcomeWindowController?
@@ -128,6 +129,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSM
             weatherItems.append(option)
             menu.addItem(option)
         }
+        let meltingMenu = NSMenu()
+        for (index, melting) in Melting.allCases.enumerated() {
+            let option = NSMenuItem(title: melting.rawValue, action: #selector(setMelting(_:)), keyEquivalent: "")
+            option.target = self
+            option.tag = index
+            meltingItems.append(option)
+            meltingMenu.addItem(option)
+        }
+        let meltingItem = NSMenuItem(title: "Melting", action: nil, keyEquivalent: "")
+        meltingItem.submenu = meltingMenu
+        menu.addItem(meltingItem)
         let wind = NSMenuItem(title: "Wind…", action: #selector(showWind), keyEquivalent: "w")
         wind.target = self
         menu.addItem(wind)
@@ -204,6 +216,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSM
         for (index, item) in weatherItems.enumerated() {
             item.state = Snowfall.allCases[index] == coordinator.snowfall ? .on : .off
         }
+        for (index, item) in meltingItems.enumerated() {
+            item.state = Melting.allCases[index] == coordinator.melting ? .on : .off
+        }
         for (index, item) in toolItems.enumerated() {
             item.state = (index == 1 ? coordinator.tool == .shovel : coordinator.tool == .glove) ? .on : .off
         }
@@ -243,5 +258,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSM
     @objc private func setSnowfall(_ sender: NSMenuItem) {
         guard Snowfall.allCases.indices.contains(sender.tag) else { return }
         coordinator?.snowfall = Snowfall.allCases[sender.tag]
+    }
+    @objc private func setMelting(_ sender: NSMenuItem) {
+        guard Melting.allCases.indices.contains(sender.tag) else { return }
+        coordinator?.melting = Melting.allCases[sender.tag]
     }
 }

@@ -164,14 +164,44 @@ public final class SnowDrift {
                 }
                 continue
             }
-            let j = Float(i) < middle ? i - 1 : i + 1
-            guard heights.indices.contains(j) else { continue }
+            // Toward the nearer end, unless that end faces a neighbour: then toward the open one.
+            var towardStart = Float(i) < middle
+            if towardStart && blockedEnds.start && !blockedEnds.end { towardStart = false }
+            if !towardStart && blockedEnds.end && !blockedEnds.start { towardStart = true }
+            if blockedEnds.start && blockedEnds.end { continue }
+            let j = towardStart ? i - 1 : i + 1
+            // Only creep toward an end that can shed: under a covering window nothing moves,
+            // so the overload cannot collect in the end sample while the edge is hidden.
+            guard heights.indices.contains(j), surface.isExposed(at: Float(j) * spacing) else { continue }
             let excess = over * 0.3
             scratch[i] -= excess
             scratch[j] += excess
         }
         for i in heights.indices { heights[i] = max(0, scratch[i]) }
+        if !isFloor { relieveOverloadSpikes() }
     }
+
+    /// An overloaded sample standing more than 4 pt above its inner neighbour slumps inward, so
+    /// overload can never pile into a spike at an end (or anywhere else). Samples within their
+    /// capacity are untouched, so ordinary piles keep their shape.
+    private func relieveOverloadSpikes() {
+        guard heights.count >= 2 else { return }
+        for _ in 0..<2 {
+            for i in heights.indices where heights[i] > capacities[i] + 0.001 {
+                for j in [i - 1, i + 1] where heights.indices.contains(j) && surface.isExposed(at: Float(j) * spacing) {
+                    let step = heights[i] - heights[j]
+                    guard step > 4 else { continue }
+                    let move = min(max(0, heights[i] - capacities[i]), (step - 4) * 0.5)
+                    heights[i] -= move
+                    heights[j] += move
+                }
+            }
+        }
+    }
+
+    /// Which ends overload should not creep toward, because they face a neighbouring top
+    /// across a narrow slit (set by the simulation before each settle).
+    var blockedEnds: (start: Bool, end: Bool) = (false, false)
 
     var isOverloaded: Bool {
         heights.indices.contains { heights[$0] > capacities[$0] + 0.001 }
@@ -205,13 +235,22 @@ public final class SnowDrift {
         for i in heights.indices { heights[i] *= keep }
     }
 
+    /// Room left (area, square points) within `band` points of `localX`.
+    func spareArea(near localX: Float, band: Float) -> Float {
+        heights.indices.reduce(Float(0)) { sum, i in
+            abs(Float(i) * spacing - localX) <= band ? sum + max(0, capacities[i] - heights[i]) * spacing : sum
+        }
+    }
+
     /// Takes a chunk off each exposed end, like overloaded snow sliding off a roof edge.
     /// Returns the end (local x) and the area removed there; covered ends keep their snow.
-    func shedEnds(fraction: Float, band: Float) -> [(localX: Float, mass: Float)] {
+    func shedEnds(fraction: Float, band: Float,
+                  skipping skip: (start: Bool, end: Bool) = (false, false)) -> [(localX: Float, mass: Float)] {
         guard heights.count >= 2, fraction > 0 else { return [] }
         let cells = max(1, min(heights.count / 2, Int(band / spacing)))
         var result: [(localX: Float, mass: Float)] = []
         for side in 0..<2 {
+            if side == 0 ? skip.start : skip.end { continue }
             let probe = side == 0 ? min(surface.width, spacing) : max(0, surface.width - spacing)
             guard surface.isExposed(at: probe) else { continue }
             var mass: Float = 0

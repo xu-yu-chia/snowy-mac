@@ -251,45 +251,57 @@ extension SnowSimulation {
             // A full or overloaded cap trickles snow off its outermost edge every settle, like
             // snow creeping over a roof edge; settling feeds the edge from the interior. No
             // sudden chunks, so the pile's outline stays continuous.
+            let start = neighbor(of: drift, atEnd: false), end = neighbor(of: drift, atEnd: true)
+            // Overload never creeps toward a facing neighbour, so it cannot ping-pong across a slit.
+            drift.blockedEnds = (start != nil, end != nil)
             let overloaded = drift.isOverloaded
             guard overloaded || (!drift.surface.isDock && drift.fillRatio >= 0.95) else { continue }
-            for end in drift.shedEnds(fraction: 0.05, band: 16) {
-                let outward: Float = end.localX <= 0 ? -1 : 1
-                let edgeX = drift.surface.x + end.localX
-                let edgeY = drift.surface.baseY(at: min(drift.surface.width, max(0, end.localX)))
-                if bridge(mass: end.mass, from: drift, edgeX: edgeX, edgeY: edgeY, outward: outward) { continue }
-                let x = edgeX + outward * 3
-                retainRelease(SnowRelease(position: SIMD2(max(1, min(size.x - 1, x)), max(1, edgeY - 3)),
-                                          height: 4, mass: end.mass), in: &snowReleases)
+            // Across a slit, snow only crosses while the neighbour's facing end has room for it.
+            let startFull = start.map { $0.drift.spareArea(near: $0.localX, band: 16) < 1 } ?? false
+            let endFull = end.map { $0.drift.spareArea(near: $0.localX, band: 16) < 1 } ?? false
+            for shed in drift.shedEnds(fraction: 0.05, band: 16, skipping: (startFull, endFull)) {
+                let atEnd = shed.localX > 0
+                if let target = atEnd ? end : start {
+                    let rest = target.drift.depositMass(at: target.localX, mass: shed.mass, direction: atEnd ? 1 : -1)
+                    if rest > 0.0001 { drift.addOverload(at: shed.localX, mass: rest) }
+                    meshDirty = true
+                    continue
+                }
+                let outward: Float = atEnd ? 1 : -1
+                let edgeX = drift.surface.x + shed.localX
+                let edgeY = drift.surface.baseY(at: min(drift.surface.width, max(0, shed.localX)))
+                retainRelease(SnowRelease(position: SIMD2(max(1, min(size.x - 1, edgeX + outward * 3)), max(1, edgeY - 3)),
+                                          height: 4, mass: shed.mass), in: &snowReleases)
             }
         }
         applySnowReleases()
     }
 
 
-    /// Snow sliding off an end crosses a narrow slit onto a neighbouring top at about the same
-    /// height (two widgets, a widget beside a window) instead of dropping into the slit.
-    private func bridge(mass: Float, from source: SnowDrift, edgeX: Float, edgeY: Float, outward: Float) -> Bool {
+    /// A neighbouring top across a narrow slit from one end (two widgets, a widget beside a
+    /// window): within 16 pt horizontally and 10 pt of the same height, with its facing end exposed.
+    /// Snow sliding off this end crosses onto it instead of dropping into the slit.
+    func neighbor(of source: SnowDrift, atEnd: Bool) -> (drift: SnowDrift, localX: Float)? {
         let maximumGap: Float = 16, maximumDrop: Float = 10
+        let outward: Float = atEnd ? 1 : -1
+        let edgeLocal: Float = atEnd ? source.surface.width : 0
+        let edgeX = source.surface.x + edgeLocal
+        let edgeY = source.surface.baseY(at: edgeLocal)
+        guard source.surface.isExposed(at: atEnd ? max(0, source.surface.width - source.spacing)
+                                                  : min(source.surface.width, source.spacing)) else { return nil }
         var best: (drift: SnowDrift, localX: Float, gap: Float)?
         for target in drifts where target !== source && target.surface.id != DesktopSceneBuilder.groundID
-            && !target.surface.isElevated && target.surface.isElevated == source.surface.isElevated {
-            // The neighbour's near end, seen from this edge.
-            let nearX = outward > 0 ? target.surface.x : target.surface.x + target.surface.width
+            && target.surface.isElevated == source.surface.isElevated {
+            let nearX = atEnd ? target.surface.x : target.surface.x + target.surface.width
             let gap = (nearX - edgeX) * outward
             guard gap >= -1, gap <= maximumGap else { continue }
-            let localX = outward > 0 ? min(target.surface.width, 2) : max(0, target.surface.width - 2)
+            let localX = atEnd ? min(target.surface.width, 2) : max(0, target.surface.width - 2)
             let drop = target.surface.baseY(at: localX) - edgeY
             guard drop >= -maximumDrop, drop <= maximumDrop, target.surface.isExposed(at: localX),
                   best == nil || gap < best!.gap else { continue }
             best = (target, localX, gap)
         }
-        guard let best else { return false }
-        let rest = best.drift.depositMass(at: best.localX, mass: mass, direction: outward)
-        // A full neighbour carries it as overload, which in turn creeps to its far end.
-        if rest > 0.0001 { best.drift.addOverload(at: best.localX, mass: rest) }
-        meshDirty = true
-        return true
+        return best.map { ($0.drift, $0.localX) }
     }
 
 

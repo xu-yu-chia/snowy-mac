@@ -133,6 +133,40 @@ public final class SnowDrift {
         swap(&heights, &scratch)
     }
 
+    /// How full the pile is relative to what snowfall alone can build (1 = snowfall has stopped).
+    var fillRatio: Float {
+        let full = snowfallCapacities.reduce(0, +)
+        return full > 0.0001 ? heights.reduce(0, +) / full : 0
+    }
+
+    /// Removes the same fraction of every sample, so deep piles melt faster than thin ones.
+    func melt(fraction: Float) {
+        guard fraction > 0 else { return }
+        let keep = max(0, 1 - fraction)
+        for i in heights.indices { heights[i] *= keep }
+    }
+
+    /// Takes a chunk off each exposed end, like overloaded snow sliding off a roof edge.
+    /// Returns the end (local x) and the area removed there; covered ends keep their snow.
+    func shedEnds(fraction: Float, band: Float) -> [(localX: Float, mass: Float)] {
+        guard heights.count >= 2, fraction > 0 else { return [] }
+        let cells = max(1, min(heights.count / 2, Int(band / spacing)))
+        var result: [(localX: Float, mass: Float)] = []
+        for side in 0..<2 {
+            let probe = side == 0 ? min(surface.width, spacing) : max(0, surface.width - spacing)
+            guard surface.isExposed(at: probe) else { continue }
+            var mass: Float = 0
+            for k in 0..<cells {
+                let i = side == 0 ? k : heights.count - 1 - k
+                let take = heights[i] * fraction
+                heights[i] -= take
+                mass += take * spacing
+            }
+            if mass > 0.0001 { result.append((side == 0 ? 0 : surface.width, mass)) }
+        }
+        return result
+    }
+
     func copySnow(from previous: SnowDrift) {
         for i in heights.indices {
             heights[i] = min(capacities[i], previous.height(at: Float(i) * spacing))

@@ -218,6 +218,27 @@ extension SnowSimulation {
     }
 
 
+    /// A window or widget cap that snowfall has filled sheds an occasional chunk off its ends.
+    /// The chunk leaves just outside the support and falls as granular snow beside it. The
+    /// floor, the Dock ridge and Spotlight's temporary cap never shed.
+    func shedOverloadedCaps() {
+        guard budget.cells > 0 else { return }
+        for drift in drifts where drift.surface.id != DesktopSceneBuilder.groundID
+            && !drift.surface.isDock && !drift.surface.isElevated && !drift.surface.releasesSnowWhenRemoved {
+            // Each full cap sheds about once every 1.25 s on average.
+            guard drift.fillRatio >= 0.95, random.unit() < 0.08 else { continue }
+            for end in drift.shedEnds(fraction: 0.25, band: 40) {
+                let outward: Float = end.localX <= 0 ? -1 : 1
+                let x = drift.surface.x + end.localX + outward * 3
+                let y = drift.surface.baseY(at: min(drift.surface.width, max(0, end.localX))) - 3
+                retainRelease(SnowRelease(position: SIMD2(max(1, min(size.x - 1, x)), max(1, y)),
+                                          height: 4, mass: end.mass), in: &snowReleases)
+            }
+        }
+        applySnowReleases()
+    }
+
+
     func retainRelease(_ release: SnowRelease, in queue: inout [SnowRelease]) {
         guard release.mass > 0.0001, budget.cells > 0 else { return }
         if queue.count < budget.cells {

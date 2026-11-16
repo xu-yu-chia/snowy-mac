@@ -11,6 +11,7 @@ public final class SnowSimulation {
     public internal(set) var elevatedMeshRanges: [Range<Int>] = []
     public internal(set) var meshRevision: UInt64 = 0
     public var snowfall: Snowfall = .steady
+    public var melting: Melting = .off
     public var reducedMotion = false
     public var particleScale: Float = 1
     public var wind = WindSettings() {
@@ -149,8 +150,13 @@ public final class SnowSimulation {
         } else { previousCursor = nil }
 
         for drift in drifts { drift.accumulate(dt: dt, intensity: snowfall.density) }
+        if melting.rate > 0 {
+            for drift in drifts { drift.melt(fraction: melting.rate * dt) }
+            meshDirty = true
+        }
         if settleAge >= 0.1 {
             for drift in drifts { drift.settle() }
+            shedOverloadedCaps()
             settleAge = 0
             meshDirty = true
         }

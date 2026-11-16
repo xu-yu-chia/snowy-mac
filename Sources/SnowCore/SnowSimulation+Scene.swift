@@ -37,7 +37,7 @@ extension SnowSimulation {
                 }
             }
             looseSnow.push(by: motion.old, to: motion.new)
-            pushSupportedSnow(with: motion, skipping: movedIDs)
+            if ploughsSupportedSnow { pushSupportedSnow(with: motion, skipping: movedIDs) }
         }
         // Ambient flakes recycle; accumulated snow follows the opening/motion distinction above.
         for i in flakes.indices {

@@ -14,9 +14,9 @@ final class SimultaneousArrangementTests: XCTestCase {
                             layer: 0, role: .application)
     }
 
-    private func apply(_ records: [DesktopWindowRecord], to simulation: SnowSimulation) {
+    private func apply(_ records: [DesktopWindowRecord], to simulation: SnowSimulation, userMotion: Bool = true) {
         let scene = DesktopSceneBuilder.build(displayBounds: screen, menuInset: 24, windows: records)
-        simulation.updateScene(surfaces: scene.surfaces, bodies: scene.bodies)
+        simulation.updateScene(surfaces: scene.surfaces, bodies: scene.bodies, userMotion: userMotion)
     }
 
     private func world() -> SnowSimulation {
@@ -66,5 +66,23 @@ final class SimultaneousArrangementTests: XCTestCase {
         // The arrangement finishes with both windows apart again; the cap is still there.
         apply([front, back], to: simulation)
         XCTAssertEqual(area(drift(1, in: simulation)), before, accuracy: before * 0.02)
+    }
+
+    /// Minimizing (the genie animation), tiling and app-driven resizes move a single window
+    /// without the pointer. Its cap follows it instead of being handed to a lower window
+    /// or knocked loose into the air.
+    func testProgrammaticDescentKeepsTheCapOnItsOwnWindow() {
+        let simulation = world()
+        let lower = window(2, x: 100, y: 300, width: 500, height: 400)
+        apply([window(1, x: 200, y: 100, width: 200, height: 200), lower], to: simulation)
+        simulation.clear()
+        seed(drift(1, in: simulation))
+        let before = area(drift(1, in: simulation))
+
+        apply([window(1, x: 200, y: 320, width: 200, height: 200), lower], to: simulation, userMotion: false)
+
+        XCTAssertEqual(area(drift(1, in: simulation)), before, accuracy: before * 0.02)
+        XCTAssertLessThan(area(drift(2, in: simulation)), before * 0.02, "Nothing is handed to the lower window")
+        XCTAssertLessThan(simulation.looseSnow.totalMass + simulation.pendingTransferMass, before * 0.02)
     }
 }

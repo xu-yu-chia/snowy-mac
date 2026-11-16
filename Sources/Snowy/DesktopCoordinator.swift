@@ -360,7 +360,10 @@ final class DesktopCoordinator {
         guard let snapshot = display.snapshot else { return }
         let simulation = display.renderer.simulation
         let scene = display.decorations.scene(with: snapshot, budget: simulation.budget)
-        simulation.updateScene(surfaces: scene.surfaces, bodies: scene.bodies)
+        // Only a pointer drag pushes and hands off snow; minimize, tiling and app-driven
+        // moves simply carry each cap with its window.
+        let userMotion = draggingWindow || NSEvent.pressedMouseButtons != 0
+        simulation.updateScene(surfaces: scene.surfaces, bodies: scene.bodies, userMotion: userMotion)
     }
 
     private func updateState() {

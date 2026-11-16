@@ -33,6 +33,9 @@ public final class SnowSimulation {
     var lastSurfaces: [Surface] = []
     var pendingAppearances: [SolidBody] = []
     var batchingScene = false
+    /// False while applying a scene whose motion came from the system (minimize, tiling,
+    /// app-driven moves) rather than a pointer drag.
+    var ploughsSupportedSnow = true
     struct SupportTransfer {
         var targetID: UInt64
         var x: Float
@@ -94,15 +97,21 @@ public final class SnowSimulation {
     }
 
     /// Attached supports move first; then their boundaries displace the surrounding snow.
-    public func updateScene(surfaces: [Surface], bodies: [SolidBody]) {
+    public func updateScene(surfaces: [Surface], bodies: [SolidBody], userMotion: Bool = true) {
         looseSnow.beginFrame()
         batchingScene = true
         pendingAppearances.removeAll(keepingCapacity: true)
         let motions = persistentBodyMotions(to: bodies)
-        captureSupportTransfers(to: surfaces, motions: motions)
-        captureCarriedSnowCollisions(to: surfaces, motions: motions)
+        // Hand-offs, scraping and ploughing model a window dragged by the pointer. System-driven
+        // motion only carries each cap with its own window; covered parts stay hidden.
+        if userMotion {
+            captureSupportTransfers(to: surfaces, motions: motions)
+            captureCarriedSnowCollisions(to: surfaces, motions: motions)
+        }
         updateSurfaces(surfaces, windBodies: bodies)
+        ploughsSupportedSnow = userMotion
         updateBodies(bodies)
+        ploughsSupportedSnow = true
         refreshCornerWind()
         applySupportTransfers()
         // Contacts were captured before attachment transforms. Insert them only after

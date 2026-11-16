@@ -6,7 +6,9 @@ extension SnowSimulation {
         let depth = random.unit()
         let radius = 0.65 + depth * depth * 1.85
         var position = SIMD2(random.value(radius, max(radius, size.x - radius)), Float(-5))
-        if scattered {
+        if !scattered, let entry = upwindEntry(radius: radius) {
+            position = entry
+        } else if scattered {
             // Density changes must not seed snow inside windows and eject it in an artificial burst.
             for _ in 0..<4 {
                 let candidate = SIMD2(random.value(radius, max(radius, size.x - radius)), random.value(0, size.y))
@@ -23,6 +25,28 @@ extension SnowSimulation {
             opacity: 0.28 + depth * 0.6,
             phase: random.value(0, .pi * 2), remainingLife: 100, mass: radius * radius * 0.45
         )
+    }
+
+
+    /// With a crosswind, snow crosses the upwind edge as well as the top. The edge is chosen by
+    /// its share of the incoming flux, so calm weather keeps every entry at the top.
+    func upwindEntry(radius: Float) -> SIMD2<Float>? {
+        let crosswind = wind.velocity.x
+        guard abs(crosswind) > 1, size.x > 1, size.y > 1 else { return nil }
+        // Mean ambient fall speed: 20 + 43·E[depth] plus the vertical wind share used in `step`.
+        let fall = max(1, 41.5 + wind.velocity.y * 0.35)
+        let sideFlux = size.y * abs(crosswind)
+        guard random.unit() < sideFlux / (size.x * fall + sideFlux) else { return nil }
+        // Inside the horizontal wrap margin, so the flake is not teleported to the far edge.
+        let x: Float = crosswind > 0 ? -4 : size.x + 4
+        for _ in 0..<4 {
+            let candidate = SIMD2(x, random.value(0, size.y))
+            let occupied = bodyBuckets[bucket(at: max(0, min(size.x, candidate.x)))].contains { index in
+                bodies[index].contains(candidate, padding: radius + 6)
+            }
+            if !occupied { return candidate }
+        }
+        return nil
     }
 
 

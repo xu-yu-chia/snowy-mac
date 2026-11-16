@@ -145,19 +145,32 @@ public final class SnowDrift {
     }
 
     /// Snow above capacity creeps one sample toward the nearer end per settle, so an
-    /// overloaded hump drifts to the edge where `shedEnds` lets it slide off.
+    /// overloaded hump drifts to the edge where `shedEnds` lets it slide off. The floor has no
+    /// edge to shed over: its overload spreads out to both sides and slowly compacts away.
     private func creepOverload() {
         guard heights.count >= 2 else { return }
+        let isFloor = surface.id == DesktopSceneBuilder.groundID
         let middle = Float(heights.count - 1) / 2
         for i in heights.indices { scratch[i] = heights[i] }
         for i in heights.indices where heights[i] > capacities[i] + 0.001 {
+            let over = heights[i] - capacities[i]
+            if isFloor {
+                // 0.5% compaction per settle (about 5% per second), then spread sideways.
+                scratch[i] -= over * 0.005
+                let share = over * 0.12
+                for j in [i - 1, i + 1] where heights.indices.contains(j) {
+                    scratch[i] -= share
+                    scratch[j] += share
+                }
+                continue
+            }
             let j = Float(i) < middle ? i - 1 : i + 1
             guard heights.indices.contains(j) else { continue }
-            let excess = (heights[i] - capacities[i]) * 0.3
+            let excess = over * 0.3
             scratch[i] -= excess
             scratch[j] += excess
         }
-        swap(&heights, &scratch)
+        for i in heights.indices { heights[i] = max(0, scratch[i]) }
     }
 
     var isOverloaded: Bool {

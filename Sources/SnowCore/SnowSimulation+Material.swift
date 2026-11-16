@@ -242,15 +242,17 @@ extension SnowSimulation {
 
     /// A window or widget cap that snowfall has filled sheds an occasional chunk off its ends.
     /// The chunk leaves just outside the support and falls as granular snow beside it. The
-    /// floor, the Dock ridge and Spotlight's temporary cap never shed.
+    /// floor and Spotlight's temporary cap never shed; the Dock ridge sheds only extra snow
+    /// carried above its capacity, so a merely full ridge keeps its even shape.
     func shedOverloadedCaps() {
         guard budget.cells > 0 else { return }
         for drift in drifts where drift.surface.id != DesktopSceneBuilder.groundID
-            && !drift.surface.isDock && !drift.surface.isElevated && !drift.surface.releasesSnowWhenRemoved {
+            && !drift.surface.isElevated && !drift.surface.releasesSnowWhenRemoved {
             // A full or overloaded cap trickles snow off its outermost edge every settle, like
             // snow creeping over a roof edge; settling feeds the edge from the interior. No
             // sudden chunks, so the pile's outline stays continuous.
-            guard drift.isOverloaded || drift.fillRatio >= 0.95 else { continue }
+            let overloaded = drift.isOverloaded
+            guard overloaded || (!drift.surface.isDock && drift.fillRatio >= 0.95) else { continue }
             for end in drift.shedEnds(fraction: 0.05, band: 16) {
                 let outward: Float = end.localX <= 0 ? -1 : 1
                 let edgeX = drift.surface.x + end.localX

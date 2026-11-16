@@ -232,13 +232,41 @@ extension SnowSimulation {
                   random.unit() < (overloaded ? 0.3 : 0.08) else { continue }
             for end in drift.shedEnds(fraction: 0.25, band: 40) {
                 let outward: Float = end.localX <= 0 ? -1 : 1
-                let x = drift.surface.x + end.localX + outward * 3
-                let y = drift.surface.baseY(at: min(drift.surface.width, max(0, end.localX))) - 3
-                retainRelease(SnowRelease(position: SIMD2(max(1, min(size.x - 1, x)), max(1, y)),
+                let edgeX = drift.surface.x + end.localX
+                let edgeY = drift.surface.baseY(at: min(drift.surface.width, max(0, end.localX)))
+                if bridge(mass: end.mass, from: drift, edgeX: edgeX, edgeY: edgeY, outward: outward) { continue }
+                let x = edgeX + outward * 3
+                retainRelease(SnowRelease(position: SIMD2(max(1, min(size.x - 1, x)), max(1, edgeY - 3)),
                                           height: 4, mass: end.mass), in: &snowReleases)
             }
         }
         applySnowReleases()
+    }
+
+
+    /// Snow sliding off an end crosses a narrow slit onto a neighbouring top at about the same
+    /// height (two widgets, a widget beside a window) instead of dropping into the slit.
+    private func bridge(mass: Float, from source: SnowDrift, edgeX: Float, edgeY: Float, outward: Float) -> Bool {
+        let maximumGap: Float = 16, maximumDrop: Float = 10
+        var best: (drift: SnowDrift, localX: Float, gap: Float)?
+        for target in drifts where target !== source && target.surface.id != DesktopSceneBuilder.groundID
+            && !target.surface.isElevated && target.surface.isElevated == source.surface.isElevated {
+            // The neighbour's near end, seen from this edge.
+            let nearX = outward > 0 ? target.surface.x : target.surface.x + target.surface.width
+            let gap = (nearX - edgeX) * outward
+            guard gap >= -1, gap <= maximumGap else { continue }
+            let localX = outward > 0 ? min(target.surface.width, 2) : max(0, target.surface.width - 2)
+            let drop = target.surface.baseY(at: localX) - edgeY
+            guard drop >= -maximumDrop, drop <= maximumDrop, target.surface.isExposed(at: localX),
+                  best == nil || gap < best!.gap else { continue }
+            best = (target, localX, gap)
+        }
+        guard let best else { return false }
+        let rest = best.drift.depositMass(at: best.localX, mass: mass, direction: outward)
+        // A full neighbour carries it as overload, which in turn creeps to its far end.
+        if rest > 0.0001 { best.drift.addOverload(at: best.localX, mass: rest) }
+        meshDirty = true
+        return true
     }
 
 

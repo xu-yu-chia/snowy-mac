@@ -20,6 +20,10 @@ final class MetalContext {
         let library: MTLLibrary
         if let url = Bundle.main.url(forResource: "Snow", withExtension: "metallib") {
             library = try device.makeLibrary(URL: url)
+        } else if let url = Bundle.main.url(forResource: "Snow", withExtension: "metal") {
+            // A local bundle built without the separately downloaded Metal Toolchain ships
+            // the shader source and compiles it once at launch.
+            library = try device.makeLibrary(source: String(contentsOf: url, encoding: .utf8), options: nil)
         } else {
             // `swift run` development fallback; packaged apps ship a precompiled library.
             guard let url = Bundle.module.url(forResource: "Snow", withExtension: "metal") else {

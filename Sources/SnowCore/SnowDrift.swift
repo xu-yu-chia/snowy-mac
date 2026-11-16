@@ -44,7 +44,11 @@ public final class SnowDrift {
             let lobe = 0.68 + sin(x * 0.027 + phase) * 0.18
                 + sin(x * 0.071 + phase * 2) * 0.09
                 + sin(x * 0.13 + phase) * 0.05
-            capacities[i] = cap * taper
+            // The physical limit follows the same lobes (about 71-99%), so a pile filled by the
+            // glove or by landing snow undulates like fresh snow instead of forming a flat plateau.
+            // The Dock keeps its even ridge.
+            let relief: Float = surface.isDock ? 1 : 0.85 + (lobe - 0.68) * 0.45
+            capacities[i] = cap * taper * relief
             baseCapacities[i] = cap * lobe * taper
             snowfallCapacities[i] = baseCapacities[i]
             deposition[i] = (0.18 + lobe * 0.17) * taper

@@ -96,7 +96,9 @@ public final class SnowDrift {
     }
 
     /// Area in square points, independent of profile resolution. Returns mass that could not fit.
-    func depositMass(at localX: Float, mass: Float, direction: Float = 0, snowfall: Bool = false) -> Float {
+    /// `reach` limits how many samples away from the landing point the area may settle.
+    func depositMass(at localX: Float, mass: Float, direction: Float = 0, snowfall: Bool = false,
+                     reach: Int = 24) -> Float {
         guard mass.isFinite, mass > 0 else { return 0 }
         guard localX >= 0, localX <= surface.width else { return mass }
         let coordinate = localX / spacing
@@ -104,7 +106,7 @@ public final class SnowDrift {
             : (direction < 0 ? floor(coordinate) : coordinate.rounded()))))
         if snowfall && (!surface.isSnowExposed(at: localX) || cornerWind[center].clear) { return mass }
         var remaining = mass
-        for distance in 0...24 {
+        for distance in 0...max(0, min(24, reach)) {
             for side in 0..<((distance == 0 || direction != 0) ? 1 : 2) {
                 let i = center + (direction < 0 ? -distance : (side == 0 ? distance : -distance))
                 guard heights.indices.contains(i), surface.isExposed(at: Float(i) * spacing) else { continue }
@@ -130,6 +132,10 @@ public final class SnowDrift {
             let flux = (heights[i] - heights[i + 1] + surface.slope * spacing) * 0.12
             let from = flux > 0 ? i : i + 1
             let to = flux > 0 ? i + 1 : i
+            // Snow does not creep sideways along a flat top into a roofed slit that snowfall
+            // cannot reach; only a slope steeper than about 37° slumps into it.
+            if !surface.isSnowExposed(at: Float(to) * spacing),
+               abs(heights[i] - heights[i + 1]) < 3 { continue }
             let transfer = min(abs(flux), min(scratch[from], max(0, capacities[to] - scratch[to])))
             scratch[from] -= transfer
             scratch[to] += transfer

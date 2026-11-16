@@ -24,6 +24,7 @@ extension SnowSimulation {
         eraseCoveredSnow(inside: changes.appeared)
         eraseReleasedSnow(inside: changes.appeared)
         for body in changes.appeared { looseSnow.erase(inside: body) }
+        let movedIDs = Set(changes.moved.map(\.new.id))
         for motion in changes.moved {
             let pitch = looseSnow.maximumActive > 0 ? looseSnow.cellSize : 3
             let marginX = min(pitch * 0.5, size.x * 0.5)
@@ -36,7 +37,7 @@ extension SnowSimulation {
                 }
             }
             looseSnow.push(by: motion.old, to: motion.new)
-            pushSupportedSnow(with: motion)
+            pushSupportedSnow(with: motion, skipping: movedIDs)
         }
         // Ambient flakes recycle; accumulated snow follows the opening/motion distinction above.
         for i in flakes.indices {
@@ -171,9 +172,13 @@ extension SnowSimulation {
     }
 
 
-    private func pushSupportedSnow(with motion: BodyMotion) {
+    /// `movedSupports` are caps whose own window moved in this snapshot. They have already
+    /// followed their support, and the relative path between two moving windows is unknown,
+    /// so a simultaneous arrangement leaves them attached instead of ploughing them loose.
+    private func pushSupportedSnow(with motion: BodyMotion, skipping movedSupports: Set<UInt64>) {
         let padding = looseSnow.cellSize * 0.65
         for drift in drifts where drift.surface.id != motion.new.id
+            && !movedSupports.contains(drift.surface.id)
             && (!drift.surface.isElevated || motion.new.isElevated) {
             let swept = motion.old.bounds.union(motion.new.bounds).insetBy(dx: -CGFloat(padding), dy: -CGFloat(padding))
             guard swept.maxX >= CGFloat(drift.surface.x), swept.minX <= CGFloat(drift.surface.x + drift.surface.width),

@@ -25,8 +25,10 @@ extension SnowSimulation {
             let band = CGRect(x: CGFloat(min(old.x, next.x)), y: CGFloat(min(old.y, next.y) - 32),
                 width: CGFloat(max(old.x + old.width, next.x + next.width) - min(old.x, next.x)),
                 height: CGFloat(abs(next.y - old.y) + max(old.cornerRadius, next.cornerRadius) + 32))
+            // A window that moved in this same snapshot (tiling, arrangement, app animation)
+            // has an unknown path relative to this cap, so it cannot be shown to scrape it.
             let obstacles = motions.filter {
-                $0.old.id != old.id && $0.old.isElevated == old.isElevated
+                $0.old.id != old.id && $0.old == $0.new && $0.old.isElevated == old.isElevated
                     && $0.new.isElevated == next.isElevated
                     && $0.old.bounds.union($0.new.bounds).insetBy(dx: -CGFloat(pitch), dy: -CGFloat(pitch)).intersects(band)
             }

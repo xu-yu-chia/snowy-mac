@@ -46,6 +46,9 @@ final class DesktopCoordinator {
     private var displays: [Display] = []
     private var observers: [(NotificationCenter, NSObjectProtocol)] = []
     private var metadataTimer: Timer?
+    /// Closed windows are only noticed by polling; a shorter idle interval keeps a closed
+    /// window's cap from hanging in the air for up to half a second.
+    private static let idleMetadataInterval: TimeInterval = 0.15
     private var screensAwake = true
     private var sessionActive = true
     private var primaryTop: CGFloat = 0
@@ -181,6 +184,13 @@ final class DesktopCoordinator {
             }
             self.updateState()
             self.refreshMetadata()
+        }
+        for name in [NSWorkspace.didHideApplicationNotification, NSWorkspace.didUnhideApplicationNotification,
+                     NSWorkspace.didActivateApplicationNotification, NSWorkspace.didDeactivateApplicationNotification] {
+            observe(workspace, name) { [weak self] in
+                self?.tracker.requestFullRefresh()
+                self?.refreshMetadata()
+            }
         }
         observe(workspace, NSWorkspace.screensDidSleepNotification) { [weak self] in
             self?.screensAwake = false
@@ -379,10 +389,10 @@ final class DesktopCoordinator {
         }
         if desktopAvailable && (running || editorVisible || followsObjects) && !displays.isEmpty {
             if metadataTimer == nil {
-                let timer = Timer(timeInterval: 0.5, repeats: true) { [weak self] _ in
+                let timer = Timer(timeInterval: Self.idleMetadataInterval, repeats: true) { [weak self] _ in
                     MainActor.assumeIsolated { self?.refreshMetadata() }
                 }
-                timer.tolerance = 0.10
+                timer.tolerance = Self.idleMetadataInterval * 0.2
                 RunLoop.main.add(timer, forMode: .common)
                 metadataTimer = timer
                 refreshMetadata()
@@ -403,9 +413,10 @@ final class DesktopCoordinator {
 
     private func refreshMetadata(dragging: Bool? = nil) {
         guard needsDesktopScene, !displays.isEmpty else { return }
-        let idleInterval: TimeInterval = displays.allSatisfy(\.fullscreen) ? 1 : 0.5
+        let idleInterval: TimeInterval = displays.allSatisfy(\.fullscreen) ? 1 : Self.idleMetadataInterval
         let now = CACurrentMediaTime()
-        if now - lastDockGeometryRead >= idleInterval {
+        // The Dock reservation rarely changes; keep its read at the previous cadence.
+        if now - lastDockGeometryRead >= max(idleInterval, 0.5) {
             // visibleFrame follows the currently occupied Dock screen and auto-hide
             // state. Re-read it at metadata cadence, without rebuilding renderers.
             dockBottomInsets.removeAll(keepingCapacity: true)

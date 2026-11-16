@@ -86,6 +86,14 @@ final class WindowTracker {
         }
     }
 
+    /// Public metadata has no per-window close notification. App lifecycle events (hide,
+    /// unhide, activation) often coincide with windows leaving the screen, so query on the
+    /// next refresh instead of waiting for the idle interval.
+    func requestFullRefresh() {
+        lastQuery = -.infinity
+        lastFullQuery = -.infinity
+    }
+
     func invalidate() {
         generation += 1
         lastQuery = -.infinity

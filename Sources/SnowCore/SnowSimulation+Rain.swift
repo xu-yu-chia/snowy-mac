@@ -70,6 +70,7 @@ extension SnowSimulation {
         releaseRunoff()
         stepDrips(dt: dt)
         stepSplashes(dt: dt)
+        stepPuddleWaves(dt: dt)
         flood.step(dt: dt)
     }
 
@@ -107,6 +108,7 @@ extension SnowSimulation {
         if let hit = rainTopHit(from: start, to: end, includeProps: true) {
             let drift = drifts[hit.index]
             if drift.surface.holdsWater {
+                ringPuddle(drift, at: hit.localX, velocity: Self.dropRipple)
                 queueRunoff(drift.addWater(area: area, at: hit.localX), from: drift)
             } else {
                 flood.add(area: area) // Props shed it; it reaches the flood behind them.
@@ -242,7 +244,7 @@ extension SnowSimulation {
                 for _ in 0..<2 {
                     let x = a.x + (b.x - a.x) * max(0, min(1, t))
                     let local = max(0, min(s.width, x - s.x))
-                    t = (s.baseY(at: local) - drift.height(at: local) - a.y) / (b.y - a.y)
+                    t = (waterSurfaceY(drift, at: local) - a.y) / (b.y - a.y)
                 }
                 guard t >= 0, t <= 1, t < bestT else { continue }
                 let point = a + (b - a) * t
@@ -253,6 +255,33 @@ extension SnowSimulation {
             }
         }
         return best
+    }
+
+    /// Height of the wet (or snowy) surface of a top: water lies on any snow still there.
+    func waterSurfaceY(_ drift: SnowDrift, at local: Float) -> Float {
+        let s = drift.surface
+        var y = s.baseY(at: local) - drift.height(at: local)
+        if drift.puddle > 0 {
+            y -= drift.puddle + (drift.waves?.height(at: local) ?? 0) * waveScale(drift)
+        }
+        return y
+    }
+
+    /// Ripples shrink with shallow water so a thin puddle never shows a 12 pt wave.
+    func waveScale(_ drift: SnowDrift) -> Float { min(1, drift.puddle / 12) }
+
+    /// Rings collected water where something lands in it (containers only; rim puddles are thin).
+    func ringPuddle(_ drift: SnowDrift, at local: Float, velocity: Float) {
+        guard drift.isContainer, drift.puddle > 3 else { return }
+        if drift.waves == nil { drift.waves = FloodField(width: drift.surface.width) }
+        drift.waves?.impulse(from: local - Self.rippleReach, to: local + Self.rippleReach, velocity: velocity)
+    }
+
+    /// Steps basin ripples; a top that stopped being a container loses them.
+    func stepPuddleWaves(dt: Float) {
+        for drift in drifts where drift.waves != nil {
+            if drift.isContainer && drift.puddle > 1 { drift.waves?.step(dt: dt) } else { drift.waves = nil }
+        }
     }
 
     enum WallContact { case wall(SIMD2<Float>, bottom: Float), hidden }
@@ -324,7 +353,9 @@ extension SnowSimulation {
     func releaseRunoff() {
         guard !pendingRunoff.isEmpty else { return }
         for (position, area) in pendingRunoff {
-            if reducedMotion || weather == .snow {
+            let behindWindow = bodyBuckets[bucket(at: max(0, min(size.x, position.x)))]
+                .contains { bodies[$0].contains(position) }
+            if reducedMotion || weather == .snow || behindWindow {
                 flood.add(area: area)
             } else {
                 let wall = wallBelow(position)
@@ -366,7 +397,30 @@ extension SnowSimulation {
             let end = start + drip.velocity * dt
             if drip.slideUntil == nil, let hit = rainTopHit(from: start, to: end, includeProps: false) {
                 let drift = drifts[hit.index]
+                ringPuddle(drift, at: hit.localX, velocity: Self.dripRipple)
+                splash(at: hit.point)
                 queueRunoff(drift.addWater(area: drip.area, at: hit.localX), from: drift)
+                continue
+            }
+            if drip.slideUntil == nil {
+                switch rainWallHit(from: start, to: end) {
+                case .wall(let point, let bottom):
+                    drip.position = point
+                    drip.slideUntil = bottom
+                    drip.velocity = SIMD2(0, Self.dripSlideSpeed)
+                    kept.append(drip)
+                    continue
+                case .hidden:
+                    flood.add(area: drip.area)
+                    continue
+                case .none:
+                    break
+                }
+            }
+            // Water that ends up behind a window (sliding down a wall another window covers, or
+            // released under one) is hidden there and joins the flood out of sight.
+            if bodyBuckets[bucket(at: max(0, min(size.x, end.x)))].contains(where: { bodies[$0].contains(end) }) {
+                flood.add(area: drip.area)
                 continue
             }
             let surface = floodSurfaceY(at: end.x)

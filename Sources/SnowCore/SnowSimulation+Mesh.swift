@@ -78,8 +78,8 @@ extension SnowSimulation {
                     let base1 = s.baseY(at: right) - drift.height(at: right)
                     waterQuad(SnowVertex(position: SIMD2(s.x + left, base0 + 0.3), material: SIMD2(0, 0.42)),
                               SnowVertex(position: SIMD2(s.x + right, base1 + 0.3), material: SIMD2(0, 0.42)),
-                              SnowVertex(position: SIMD2(s.x + left, base0 - drift.puddle), material: SIMD2(1, 0.34)),
-                              SnowVertex(position: SIMD2(s.x + right, base1 - drift.puddle), material: SIMD2(1, 0.34)))
+                              SnowVertex(position: SIMD2(s.x + left, waterSurfaceY(drift, at: left)), material: SIMD2(1, 0.34)),
+                              SnowVertex(position: SIMD2(s.x + right, waterSurfaceY(drift, at: right)), material: SIMD2(1, 0.34)))
                 }
             }
         }

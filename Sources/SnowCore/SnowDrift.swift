@@ -17,6 +17,8 @@ public final class SnowDrift {
     var hanging: (start: Float, end: Float) = (0, 0)
     /// How far taller windows rise above this top right beside each visible end (nil: no wall).
     var containerWalls: (start: Float?, end: Float?) = (nil, nil)
+    /// Ripples on water collected in a container (a basin between windows).
+    var waves: FloodField?
 
     init(surface: Surface, cellCount: Int, windEffects: [CornerWindEffect]? = nil) {
         self.surface = surface

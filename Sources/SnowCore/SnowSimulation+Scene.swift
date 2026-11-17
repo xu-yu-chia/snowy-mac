@@ -104,14 +104,32 @@ extension SnowSimulation {
             let count = min(requests[index], 5 + (requests[index] - 5) * extraBudget / extraDemand)
             let drift: SnowDrift
             if let previous = old[surface.id] {
-                if previous.heights.count == count && previous.surface.width == surface.width
-                    && previous.surface.cornerRadius == surface.cornerRadius && previous.surface.slope == surface.slope {
+                let was = previous.surface
+                let sameGeometry = previous.heights.count == count && was.x == surface.x && was.y == surface.y
+                    && was.width == surface.width && was.cornerRadius == surface.cornerRadius && was.slope == surface.slope
+                if sameGeometry {
                     previous.surface = surface
                     drift = previous
+                } else if surface.isDock || surface.id == DesktopSceneBuilder.groundID || surface.isElevated {
+                    // The Dock ridge rides its magnifying tray, the floor follows the display, and
+                    // Spotlight's cap follows its panel.
+                    if previous.heights.count == count && was.width == surface.width
+                        && was.cornerRadius == surface.cornerRadius && was.slope == surface.slope {
+                        previous.surface = surface
+                        drift = previous
+                    } else {
+                        drift = SnowDrift(surface: surface, cellCount: count)
+                        drift.copySnow(from: previous)
+                        releaseTrimmedDockSnow(from: previous, to: drift)
+                    }
                 } else {
+                    // Window and widget snow stays put on screen; what loses its support falls.
                     drift = SnowDrift(surface: surface, cellCount: count)
-                    drift.copySnow(from: previous)
-                    releaseTrimmedDockSnow(from: previous, to: drift)
+                    for fall in drift.carry(from: previous) {
+                        retainRelease(SnowRelease(position: SIMD2(max(1, min(size.x - 1, fall.position.x)),
+                                                                  max(1, fall.position.y)),
+                                                  height: fall.height, mass: fall.mass), in: &snowReleases)
+                    }
                 }
             } else {
                 // The initial dusting is incoming snowfall too. Use the incoming scene's

@@ -44,38 +44,6 @@ final class OverlapTransferTests: XCTestCase {
         }
     }
 
-    func testDescendingWindowLeavesItsSnowOnTheLowerWindow() {
-        let simulation = world()
-        let lower = window(2, x: 100, y: 300, width: 500, height: 400)
-        apply(scene([window(1, x: 200, y: 100, width: 200, height: 200), lower]), to: simulation)
-        simulation.clear()
-        seed(drift(1, in: simulation))
-        let before = total(simulation)
-
-        apply(scene([window(1, x: 200, y: 320, width: 200, height: 200), lower]), to: simulation)
-
-        XCTAssertGreaterThan(area(drift(2, in: simulation)), before * 0.9)
-        XCTAssertLessThan(area(drift(1, in: simulation)), 0.01)
-        XCTAssertEqual(total(simulation), before, accuracy: before * 0.01)
-        XCTAssertFalse(drift(2, in: simulation).surface.visibleSpans.isEmpty)
-    }
-
-    func testOnlyTheOverlappingPartChangesSupport() {
-        let simulation = world()
-        let lower = window(2, x: 250, y: 300, width: 400, height: 400)
-        apply(scene([window(1, x: 50, y: 100, width: 400, height: 200), lower]), to: simulation)
-        simulation.clear()
-        seed(drift(1, in: simulation))
-        let before = total(simulation)
-
-        apply(scene([window(1, x: 50, y: 320, width: 400, height: 200), lower]), to: simulation)
-
-        XCTAssertEqual(drift(1, in: simulation).height(at: 80), 6, accuracy: 0.01,
-                       "Snow outside the lower window keeps riding its original support")
-        XCTAssertLessThan(drift(1, in: simulation).height(at: 300), 0.01)
-        XCTAssertGreaterThan(area(drift(2, in: simulation)), 0)
-        XCTAssertEqual(total(simulation), before, accuracy: before * 0.01)
-    }
 
     func testRepeatedSnapshotDoesNotTransferTheSameSnowTwice() {
         let simulation = world()
@@ -95,38 +63,6 @@ final class OverlapTransferTests: XCTestCase {
         XCTAssertEqual(area(drift(2, in: simulation)), received, accuracy: 0.01)
     }
 
-    func testSingleLargeMovementStopsSnowAtTheFirstCrossedSupport() {
-        let simulation = world()
-        let first = window(2, x: 100, y: 250, width: 500, height: 80)
-        let second = window(3, x: 50, y: 450, width: 700, height: 300)
-        apply(scene([window(1, x: 200, y: 80, width: 200, height: 150), first, second]), to: simulation)
-        simulation.clear()
-        seed(drift(1, in: simulation))
-        let before = total(simulation)
-
-        apply(scene([window(1, x: 200, y: 550, width: 200, height: 150), first, second]), to: simulation)
-
-        XCTAssertGreaterThan(area(drift(2, in: simulation)), before * 0.9)
-        XCTAssertEqual(area(drift(3, in: simulation)), 0, accuracy: 0.01)
-        XCTAssertEqual(total(simulation), before, accuracy: before * 0.01)
-    }
-
-    func testCoplanarTopContactKeepsTheReceivingCapVisible() {
-        let simulation = world()
-        let lower = window(2, x: 100, y: 300, width: 500, height: 400)
-        apply(scene([window(1, x: 200, y: 100, width: 200, height: 200), lower]), to: simulation)
-        simulation.clear()
-        seed(drift(1, in: simulation))
-        let before = total(simulation)
-        let touching = scene([window(1, x: 200, y: 300, width: 200, height: 200), lower])
-
-        apply(touching, to: simulation)
-
-        XCTAssertTrue(drift(2, in: simulation).surface.isExposed(at: 200))
-        XCTAssertGreaterThan(drift(2, in: simulation).height(at: 200), 0)
-        XCTAssertLessThan(area(drift(1, in: simulation)), 0.01)
-        XCTAssertEqual(total(simulation), before, accuracy: before * 0.01)
-    }
 
     func testFullReceivingCapPreservesOverflowWhenGranularStorageIsDisabled() {
         let simulation = world(granular: false)

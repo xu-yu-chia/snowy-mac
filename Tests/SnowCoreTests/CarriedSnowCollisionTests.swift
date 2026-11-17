@@ -40,59 +40,6 @@ final class CarriedSnowCollisionTests: XCTestCase {
             + simulation.looseSnow.totalMass + simulation.pendingTransferMass
     }
 
-    func testCarriedSnowStopsAtTheLeftWallWhileUncontactedSnowStaysAttached() {
-        let simulation = world()
-        let wall = window(2, x: 500, y: 200, width: 100, height: 400)
-        apply([window(1, x: 100), wall], to: simulation)
-        seed(simulation)
-        let before = area(simulation)
-
-        apply([window(1, x: 450), wall], to: simulation)
-
-        XCTAssertEqual(drift(simulation).height(at: 24), 6, accuracy: 0.01)
-        XCTAssertLessThan(drift(simulation).height(at: 100), 0.01,
-                          "A carried cap must detach before entering an existing window's side")
-        XCTAssertGreaterThan(simulation.looseSnow.totalMass, 0)
-        XCTAssertTrue(simulation.looseSnow.active.allSatisfy {
-            simulation.looseSnow.position(of: $0).x < 500
-        }, "Detached material belongs on the approach side, not beyond the wall")
-        XCTAssertEqual(area(simulation), before, accuracy: before * 0.01)
-    }
-
-    func testCarriedSnowStopsAtTheRightWallDuringLeftwardMotion() {
-        let simulation = world()
-        let wall = window(2, x: 500, y: 200, width: 100, height: 400)
-        apply([window(1, x: 700), wall], to: simulation)
-        seed(simulation)
-        let before = area(simulation)
-
-        apply([window(1, x: 350), wall], to: simulation)
-
-        XCTAssertLessThan(drift(simulation).heights.max()!, 0.01)
-        XCTAssertGreaterThan(simulation.looseSnow.totalMass, 0)
-        XCTAssertTrue(simulation.looseSnow.active.allSatisfy {
-            simulation.looseSnow.position(of: $0).x > 600
-        })
-        XCTAssertEqual(area(simulation), before, accuracy: before * 0.01)
-    }
-
-    func testFastWholeWallCrossingDoesNotTunnelOrPushDetachedSnowTwice() {
-        let simulation = world()
-        let wall = window(2, x: 500, y: 200, width: 100, height: 400)
-        apply([window(1, x: 100), wall], to: simulation)
-        seed(simulation)
-        let before = area(simulation)
-
-        apply([window(1, x: 750), wall], to: simulation)
-
-        XCTAssertLessThan(drift(simulation).heights.max()!, 0.01,
-                          "Crossing the entire obstacle between snapshots must still register contact")
-        XCTAssertGreaterThan(simulation.looseSnow.totalMass, before * 0.9)
-        XCTAssertTrue(simulation.looseSnow.active.allSatisfy {
-            simulation.looseSnow.position(of: $0).x < 500
-        }, "The moving carrier must not plough its just-detached contact material a second time")
-        XCTAssertEqual(area(simulation), before, accuracy: before * 0.01)
-    }
 
     func testWidgetSidesStopCarriedSnowUsingTheirInsetPhysicalBounds() {
         let simulation = world()
@@ -132,33 +79,6 @@ final class CarriedSnowCollisionTests: XCTestCase {
         XCTAssertEqual(area(simulation), before, accuracy: before * 0.01)
     }
 
-    func testUpwardCarriedCapContactsAWindowUnderside() {
-        let simulation = world()
-        let ceiling = window(2, x: 200, y: 100, width: 500, height: 200)
-        apply([window(1, x: 300, y: 400, width: 300), ceiling], to: simulation)
-        seed(simulation)
-        let before = area(simulation)
-
-        apply([window(1, x: 300, y: 303, width: 300), ceiling], to: simulation)
-
-        XCTAssertLessThan(drift(simulation).height(at: 150), 6)
-        XCTAssertGreaterThan(simulation.looseSnow.totalMass + simulation.pendingTransferMass, 0)
-        XCTAssertEqual(area(simulation), before, accuracy: before * 0.01)
-    }
-
-    func testSnowStaysAttachedWhenItsPathDoesNotTouchAnotherBody() {
-        let simulation = world()
-        let wall = window(2, x: 500, y: 200, width: 100, height: 400)
-        apply([window(1, x: 100), wall], to: simulation)
-        seed(simulation)
-        let heights = drift(simulation).heights
-
-        apply([window(1, x: 250), wall], to: simulation)
-
-        XCTAssertEqual(drift(simulation).heights, heights)
-        XCTAssertEqual(simulation.looseSnow.totalMass, 0)
-        XCTAssertEqual(simulation.pendingTransferMass, 0)
-    }
 
     func testDetachedAreaSurvivesAFullPoolAndNeverResurfacesOnTheCarrier() {
         let simulation = world(granular: false)

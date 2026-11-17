@@ -48,26 +48,6 @@ final class IterationPhysicsTests: XCTestCase {
         XCTAssertEqual(simulation.looseSnow.totalMass, 0)
     }
 
-    func testMovingSupportKeepsItsCapAttachedWithoutAnAutomaticAvalanche() {
-        let simulation = world()
-        simulation.updateScene(surfaces: [Surface(id: 1, x: 100, y: 200, width: 400)],
-                               bodies: [SolidBody(id: 1, bounds: CGRect(x: 100, y: 200, width: 400, height: 300))])
-        simulation.clear()
-        seedMiddle(simulation.drifts[0])
-        simulation.rebuildMesh()
-        let oldRevision = simulation.meshRevision
-
-        simulation.updateScene(surfaces: [Surface(id: 1, x: 140, y: 220, width: 400)],
-                               bodies: [SolidBody(id: 1, bounds: CGRect(x: 140, y: 220, width: 400, height: 300))])
-
-        XCTAssertEqual(simulation.looseSnow.totalMass, 0, "A support update must not generate a row of old-position spray")
-        XCTAssertEqual(simulation.drifts[0].height(at: 200), 8, accuracy: 0.01)
-        XCTAssertGreaterThan(simulation.meshRevision, oldRevision,
-                             "Attached geometry must refresh in the same update, not wait for the settling tick")
-        XCTAssertFalse(simulation.mesh.isEmpty)
-        XCTAssertTrue(simulation.mesh.allSatisfy { $0.position.x >= 140 && $0.position.x <= 540 })
-        XCTAssertTrue(simulation.mesh.allSatisfy { $0.position.y > 200 && $0.position.y < 221 })
-    }
 
     func testNewWindowDeletesOnlyItsCoveredPartOfAnExistingPile() {
         let simulation = world()
@@ -144,16 +124,6 @@ final class IterationPhysicsTests: XCTestCase {
         XCTAssertEqual(windy.flakes[0].position.x - calm.flakes[0].position.x, 80 / 30, accuracy: 0.01)
     }
 
-    func testResizingSupportDoesNotLeaveSnowAtTheOldFrame() {
-        let simulation = world()
-        simulation.updateSurfaces([Surface(id: 1, x: 100, y: 200, width: 400)])
-        seedMiddle(simulation.drifts[0])
-        simulation.updateSurfaces([Surface(id: 1, x: 80, y: 260, width: 520)])
-        XCTAssertEqual(simulation.looseSnow.totalMass, 0)
-        XCTAssertGreaterThan(simulation.drifts[0].height(at: 200), 7)
-        XCTAssertFalse(simulation.mesh.isEmpty)
-        XCTAssertTrue(simulation.mesh.allSatisfy { $0.position.x >= 80 && $0.position.x <= 600 && $0.position.y > 240 })
-    }
 
     func testGranularSnowIsPlacedOutsideWindowCells() {
         let simulation = world()

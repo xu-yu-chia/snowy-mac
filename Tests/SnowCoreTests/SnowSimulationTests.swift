@@ -86,15 +86,6 @@ final class SnowSimulationTests: XCTestCase {
         XCTAssertFalse(simulation.land(from: SIMD2(300, 190), particle: particle))
     }
 
-    func testMovingAndRepositioningWindowsKeepSnowAttached() {
-        let simulation = simulation()
-        snow(on: simulation)
-        simulation.updateSurfaces([Surface(id: 1, x: 140, y: 200, width: 400)])
-        XCTAssertEqual(simulation.drifts[0].height(at: 200), 8)
-        XCTAssertEqual(simulation.looseSnow.totalMass, 0)
-        simulation.updateSurfaces([Surface(id: 1, x: 400, y: 200, width: 400)])
-        XCTAssertEqual(simulation.drifts[0].height(at: 200), 8)
-    }
 
     func testRepeatedSnapshotPreservesSnowAndMeshIdentity() {
         let simulation = simulation()

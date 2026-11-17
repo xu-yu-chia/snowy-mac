@@ -177,10 +177,12 @@ extension SnowSimulation {
     }
 
 
-    /// A temporary support's pile retains its location and area when the support vanishes.
+    /// A support's pile keeps its location and area when the support vanishes (a window closes or
+    /// is minimized): it falls from where it was. Only the floor and the Dock ridge are exempt.
     /// Keep unplaced area for retry when the granular pool or per-frame search is exhausted.
     func retainReleasedSnow(from drift: SnowDrift, coveredBy input: [SolidBody]) {
-        guard drift.surface.releasesSnowWhenRemoved, budget.cells > 0 else { return }
+        guard budget.cells > 0, !drift.surface.isDock,
+              drift.surface.id != DesktopSceneBuilder.groundID else { return }
         let covers = input.prefix(DesktopSceneBuilder.maximumBodies).filter { BodyChanges.valid($0) }
         for i in drift.heights.indices where drift.heights[i] > 0.0001 {
             let localX = Float(i) * drift.spacing

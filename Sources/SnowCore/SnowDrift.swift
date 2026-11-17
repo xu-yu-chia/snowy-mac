@@ -294,6 +294,40 @@ public final class SnowDrift {
         return over
     }
 
+    /// Settled snow is not glued to its support: it stays where it is on screen when the support
+    /// moves or resizes. Samples still above the support keep their snow (a support moving up
+    /// lifts it); everything else is returned at its old position so it can fall. A support that
+    /// moved down drops out from under all of its snow. Starts from bare, so moving a support
+    /// never creates snow.
+    func carry(from previous: SnowDrift) -> [(position: SIMD2<Float>, height: Float, mass: Float)] {
+        for i in heights.indices { heights[i] = 0 }
+        let old = previous.surface
+        let lowered = surface.y > old.y + 0.5
+        if !lowered {
+            for i in heights.indices {
+                let oldLocal = surface.x + Float(i) * spacing - old.x
+                guard oldLocal >= 0, oldLocal <= old.width else { continue }
+                heights[i] = min(capacities[i], previous.height(at: oldLocal))
+            }
+        }
+        var released: [(position: SIMD2<Float>, height: Float, mass: Float)] = []
+        for j in previous.heights.indices where previous.heights[j] > 0.0001 {
+            let oldLocal = Float(j) * previous.spacing
+            let worldX = old.x + oldLocal
+            let newLocal = worldX - surface.x
+            var lost = previous.heights[j]
+            if !lowered, newLocal >= 0, newLocal <= surface.width {
+                // Still supported: only what exceeds the capacity here (a tapered end) falls.
+                let i = max(0, min(heights.count - 1, Int((newLocal / spacing).rounded())))
+                lost = max(0, previous.heights[j] - capacities[i])
+            }
+            guard lost > 0.0001 else { continue }
+            let base = old.baseY(at: oldLocal)
+            released.append((SIMD2(worldX, base - previous.heights[j] + lost * 0.5), lost, lost * previous.spacing))
+        }
+        return released
+    }
+
     /// Room left (area, square points) within `band` points of `localX`.
     func spareArea(near localX: Float, band: Float) -> Float {
         heights.indices.reduce(Float(0)) { sum, i in

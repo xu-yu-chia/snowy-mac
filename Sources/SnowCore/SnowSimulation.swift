@@ -168,12 +168,10 @@ public final class SnowSimulation {
         batchingScene = true
         pendingAppearances.removeAll(keepingCapacity: true)
         let motions = persistentBodyMotions(to: bodies)
-        // Hand-offs, scraping and ploughing model a window dragged by the pointer. System-driven
-        // motion only carries each cap with its own window; covered parts stay hidden.
-        if userMotion {
-            captureSupportTransfers(to: surfaces, motions: motions)
-            captureCarriedSnowCollisions(to: surfaces, motions: motions)
-        }
+        // Window and widget snow is no longer carried along with its support (see `SnowDrift.carry`),
+        // so there is no carried cap to hand over or scrape; a moving window only ploughs
+        // the snow it runs into (below, and only for pointer drags).
+        _ = motions
         updateSurfaces(surfaces, windBodies: bodies)
         ploughsSupportedSnow = userMotion
         updateBodies(bodies)

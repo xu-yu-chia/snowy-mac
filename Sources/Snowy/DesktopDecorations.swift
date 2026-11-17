@@ -292,7 +292,8 @@ final class DesktopDecorations {
             }
             let surface = Surface(id: body.id, x: Float(rect.minX), y: Float(rect.minY), width: width,
                                   visibleSpans: visible, snowfallSpans: snowfall,
-                                  releasesSnowWhenRemoved: true, isElevated: false)
+                                  releasesSnowWhenRemoved: true, isElevated: false,
+                                  holdsWater: false) // Rain splashes off props; no puddles on them.
             guard !visible.isEmpty, width >= surface.minimumWidth else { continue }
             surfaces.append(surface)
             count += 1

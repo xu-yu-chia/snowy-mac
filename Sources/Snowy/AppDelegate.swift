@@ -2,12 +2,13 @@ import AppKit
 import SnowCore
 
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSMenuDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSMenuDelegate, NSMenuItemValidation {
     private var coordinator: DesktopCoordinator?
     private var statusItem: NSStatusItem?
     private let pauseItem = NSMenuItem(title: "Pause Snow", action: #selector(togglePause), keyEquivalent: "p")
     private let stateItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
     private var weatherItems: [NSMenuItem] = []
+    private var skyItems: [NSMenuItem] = []
     private var meltingItems: [NSMenuItem] = []
     private var grainItems: [NSMenuItem] = []
     private var windPopover: NSPopover?
@@ -123,6 +124,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSM
         tool.submenu = tools
         menu.addItem(tool)
         menu.addItem(.separator())
+        let skyMenu = NSMenu()
+        for (index, weather) in Weather.allCases.enumerated() {
+            let option = NSMenuItem(title: weather.rawValue, action: #selector(setWeather(_:)), keyEquivalent: "")
+            option.target = self
+            option.tag = index
+            skyItems.append(option)
+            skyMenu.addItem(option)
+        }
+        let skyItem = NSMenuItem(title: "Weather", action: nil, keyEquivalent: "")
+        skyItem.submenu = skyMenu
+        menu.addItem(skyItem)
         for (index, snowfall) in Snowfall.allCases.enumerated() {
             let option = NSMenuItem(title: snowfall.rawValue, action: #selector(setSnowfall(_:)), keyEquivalent: "")
             option.target = self
@@ -224,7 +236,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSM
         else if coordinator.paused { stateItem.title = "Snow is paused" }
         else if coordinator.policy.reducedMotion { stateItem.title = "Quiet drifts · Reduce Motion" }
         else if coordinator.policy.particleScale < 1 { stateItem.title = "Gentle snowfall · saving energy" }
+        else if coordinator.weather == .rain { stateItem.title = "Stir the rising water with your pointer" }
         else { stateItem.title = "Brush a snowy edge to sweep it away" }
+        for (index, item) in skyItems.enumerated() {
+            item.state = Weather.allCases[index] == coordinator.weather ? .on : .off
+        }
         for (index, item) in weatherItems.enumerated() {
             item.state = Snowfall.allCases[index] == coordinator.snowfall ? .on : .off
         }
@@ -274,6 +290,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSM
         guard Snowfall.allCases.indices.contains(sender.tag) else { return }
         coordinator?.snowfall = Snowfall.allCases[sender.tag]
     }
+    @objc private func setWeather(_ sender: NSMenuItem) {
+        guard Weather.allCases.indices.contains(sender.tag) else { return }
+        coordinator?.weather = Weather.allCases[sender.tag]
+    }
+
+    /// Melting and grain size only apply to snow, so they are greyed out while it rains.
+    func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        if menuItem.action == #selector(setMelting(_:)) || menuItem.action == #selector(setGrainSize(_:)) {
+            return coordinator?.weather != .rain
+        }
+        return true
+    }
+
     @objc private func setMelting(_ sender: NSMenuItem) {
         guard Melting.allCases.indices.contains(sender.tag) else { return }
         coordinator?.melting = Melting.allCases[sender.tag]

@@ -26,6 +26,14 @@ final class DesktopCoordinator {
             onStateChange?()
         }
     }
+    /// Snow or rain; saved like the other weather settings.
+    var weather: Weather {
+        didSet {
+            UserDefaults.standard.set(weather.rawValue, forKey: "weather")
+            for display in displays { display.renderer.simulation.weather = weather }
+            onStateChange?()
+        }
+    }
     var melting: Melting {
         didSet {
             UserDefaults.standard.set(melting.rawValue, forKey: "melting")
@@ -109,6 +117,7 @@ final class DesktopCoordinator {
         context = try MetalContext()
         paused = UserDefaults.standard.bool(forKey: "paused")
         snowfall = Snowfall(rawValue: UserDefaults.standard.string(forKey: "snowfall") ?? "") ?? .steady
+        weather = Weather(rawValue: UserDefaults.standard.string(forKey: "weather") ?? "") ?? .snow
         melting = Melting(rawValue: UserDefaults.standard.string(forKey: "melting") ?? "") ?? .off
         grainSize = GrainSize(rawValue: UserDefaults.standard.string(forKey: "grainSize") ?? "") ?? .normal
         wind = WindSettings(vector: SIMD2(UserDefaults.standard.float(forKey: "windX"),
@@ -273,6 +282,7 @@ final class DesktopCoordinator {
                 let renderer = try MetalRenderer(context: context, size: frame.size, menuInset: geometry.menuInset,
                                                  budget: budget, seed: UInt64(geometry.id))
                 renderer.simulation.snowfall = snowfall
+                renderer.simulation.weather = weather
                 renderer.simulation.melting = melting
                 renderer.simulation.grainSize = grainSize
                 renderer.simulation.wind = wind

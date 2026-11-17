@@ -16,6 +16,21 @@ public final class SnowSimulation {
         didSet { if grainSize != oldValue { rebuildGranularField() } }
     }
     static let accumulationPace: Float = 0.3
+    /// Mean ambient deposition (pt/s at full taper) and mean flake mass (radius² · 0.45 over a
+    /// uniform depth), used to convert the ambient rate into snow carried per landing flake.
+    static let meanDeposition: Float = 0.296
+    static let meanFlakeMass: Float = 0.859
+    /// Area (square points) each landing flake leaves, per unit of its own mass.
+    var flakeMassScale: Float = 0
+
+    /// Chosen so landed flakes build piles at the ambient mean rate whatever the flake count:
+    /// rate · width · height / (flakes · mean fall speed · mean flake mass).
+    func updateFlakeMassScale() {
+        guard !flakes.isEmpty else { flakeMassScale = 0; return }
+        let target = Self.meanDeposition * snowfall.density * Self.accumulationPace
+        let fall = max(5, 41.5 + wind.velocity.y * 0.35)
+        flakeMassScale = target * size.x * size.y / (Float(flakes.count) * fall * Self.meanFlakeMass)
+    }
     public var reducedMotion = false
     public var particleScale: Float = 1
     public var wind = WindSettings() {
@@ -153,9 +168,12 @@ public final class SnowSimulation {
             previousCursor = cursor
         } else { previousCursor = nil }
 
-        // Settled snow grows at a pace that matches the visible snowfall: about a third of the
-        // original rate, so a Steady cap takes minutes rather than ~40 s to fill.
-        for drift in drifts { drift.accumulate(dt: dt, intensity: snowfall.density * Self.accumulationPace) }
+        // Settled snow is built by the flakes that actually land (see `flakeMassScale`), so it only
+        // grows where snow can fall. Without visible flakes (Reduce Motion) the ambient rate keeps
+        // snow settling. Either way a Steady cap takes minutes, not ~40 s, to fill.
+        if flakes.isEmpty {
+            for drift in drifts { drift.accumulate(dt: dt, intensity: snowfall.density * Self.accumulationPace) }
+        }
         if melting.rate > 0 {
             for drift in drifts { drift.melt(fraction: melting.rate * dt) }
             meshDirty = true
@@ -170,6 +188,7 @@ public final class SnowSimulation {
             Int(Float(budget.flakes) * min(1, snowfall.density / Snowfall.flurry.density) * max(0, min(1, particleScale))))
         if flakes.count > desired { flakes.removeLast(flakes.count - desired) }
         while flakes.count < desired { flakes.append(newFlake(scattered: true)) }
+        updateFlakeMassScale()
 
         let wind = sin(elapsed * 0.23) * 7 + sin(elapsed * 0.071) * 5
         for i in flakes.indices {

@@ -95,6 +95,16 @@ extension SnowSimulation {
             }
             guard let hit = nearest else { particle.position = end; return false }
             particle.position = hit.position + hit.normal * 0.05
+            if let index = hit.drift, recycleOnContact {
+                // A falling flake lands: it leaves its share of the snowfall spread around the spot
+                // it touched, and a new flake starts from the sky.
+                // Never less than the flake's own mass (for example a flake injected while no
+                // snowfall is running, when the scale is undefined).
+                _ = drifts[index].depositSnowfall(at: hit.position.x - drifts[index].surface.x,
+                                                  mass: particle.mass * max(1, flakeMassScale))
+                meshDirty = true
+                return true
+            }
             if let index = hit.drift {
                 particle.mass = drifts[index].depositMass(at: hit.position.x - drifts[index].surface.x,
                                                         mass: particle.mass, snowfall: recycleOnContact)

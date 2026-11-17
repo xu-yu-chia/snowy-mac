@@ -235,6 +235,27 @@ public final class SnowDrift {
         for i in heights.indices { heights[i] *= keep }
     }
 
+    /// Snow a landing flake brings, spread in a bell around where it touched (±3 samples), only on
+    /// samples snowfall can reach and up to the snowfall limit. Returns the area that did not fit.
+    func depositSnowfall(at localX: Float, mass: Float) -> Float {
+        guard mass.isFinite, mass > 0, localX >= 0, localX <= surface.width, spacing > 0 else { return mass }
+        let center = max(0, min(heights.count - 1, Int((localX / spacing).rounded())))
+        let weights: [Float] = [0.22, 0.18, 0.12, 0.09]
+        var total: Float = 0
+        var rest = mass
+        for offset in -3...3 {
+            let i = center + offset
+            guard heights.indices.contains(i), surface.isSnowExposed(at: Float(i) * spacing),
+                  !cornerWind[i].clear else { continue }
+            let share = mass * weights[abs(offset)]
+            let accepted = min(share, max(0, snowfallCapacities[i] - heights[i]) * spacing)
+            heights[i] += accepted / spacing
+            rest -= accepted
+            total += weights[abs(offset)]
+        }
+        return max(0, rest)
+    }
+
     /// Room left (area, square points) within `band` points of `localX`.
     func spareArea(near localX: Float, band: Float) -> Float {
         heights.indices.reduce(Float(0)) { sum, i in
@@ -256,7 +277,10 @@ public final class SnowDrift {
             var mass: Float = 0
             for k in 0..<cells {
                 let i = side == 0 ? k : heights.count - 1 - k
-                let take = heights[i] * fraction
+                // Snow above capacity cannot stand at an edge: all of it goes over. Within
+                // capacity only a small trickle leaves, so a full pile creeps off gradually.
+                let over = max(0, heights[i] - capacities[i])
+                let take = over + (heights[i] - over) * fraction
                 heights[i] -= take
                 mass += take * spacing
             }

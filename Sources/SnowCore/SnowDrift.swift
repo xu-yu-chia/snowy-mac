@@ -213,6 +213,14 @@ public final class SnowDrift {
     /// across a narrow slit (set by the simulation before each settle).
     var blockedEnds: (start: Bool, end: Bool) = (false, false)
 
+    /// Whether overload added at `localX` can creep to an exposed end of this top and shed. A
+    /// stretch exposed only between covering windows (the floor of a slit) has no such end:
+    /// overload there could only pile up into a pillar.
+    func canShedOverload(at localX: Float) -> Bool {
+        guard let span = surface.visibleSpans.first(where: { $0.contains(localX) }) else { return false }
+        return span.lower <= spacing || span.upper >= surface.width - spacing
+    }
+
     var isOverloaded: Bool {
         heights.indices.contains { heights[$0] > capacities[$0] + 0.001 }
     }

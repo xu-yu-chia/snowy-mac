@@ -230,14 +230,18 @@ extension SnowSimulation {
         }
         let drift = drifts[index]
         let isFloor = drift.surface.id == DesktopSceneBuilder.groundID
+        let localX = hit.position.x - drift.surface.x
+        // Only a top that can shed overload absorbs it; on a slit's floor the rest stays loose,
+        // fills the slit and banks over its lower rim.
         let absorbs = !drift.surface.isElevated && !drift.surface.releasesSnowWhenRemoved
+            && (isFloor || drift.canShedOverload(at: localX))
         // On a window, widget or Dock top, landing snow settles within ~12 pt of where it
         // touched, instead of being carried up to ~96 pt away (for example deep into a roofed slit).
-        var remainder = drift.depositMass(at: hit.position.x - drift.surface.x, mass: mass, reach: isFloor ? 24 : 3)
+        var remainder = drift.depositMass(at: localX, mass: mass, reach: isFloor ? 24 : 3)
         if remainder > 0.0001, absorbs {
             // A full window or widget cap absorbs the rest as one smooth overloaded profile
             // rather than keeping a separate layer of grains on top of it.
-            drift.addOverload(at: hit.position.x - drift.surface.x, mass: remainder)
+            drift.addOverload(at: localX, mass: remainder)
             remainder = 0
         }
         if remainder < mass { meshDirty = true; interactionDirty = true }

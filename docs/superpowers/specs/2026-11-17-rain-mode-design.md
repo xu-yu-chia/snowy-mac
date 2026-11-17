@@ -1,6 +1,6 @@
 # Rain mode — design
 
-Status: approved by user · 2026-11-17 · 2026-11-17 · branch `snow-physics-improvements`
+Status: approved by user · 2026-11-17 · branch `snow-physics-improvements`
 
 ## Intent
 

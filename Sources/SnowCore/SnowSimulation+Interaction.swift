@@ -3,6 +3,7 @@ import Foundation
 /// Glove and shovel interaction with attached profiles and the shared granular field.
 extension SnowSimulation {
     func sweep(from start: SIMD2<Float>, to end: SIMD2<Float>, dt: Float) {
+        if weather == .rain { stirWater(from: start, to: end, dt: dt) }
         let delta = end - start
         let travel = hypot(delta.x, delta.y)
         let hard = tool == .shovel

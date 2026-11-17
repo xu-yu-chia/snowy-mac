@@ -4,6 +4,10 @@ extension SnowDrift {
     /// Deepest puddle a top holds before water runs off.
     var puddleLimit: Float { surface.isDock ? 2 : 3 }
 
+    /// Surface tension holds the puddle together, so once it overflows the escaping water drags
+    /// a whole sheet along: the puddle drops to this fraction of its limit in one go.
+    static let sheetRetention: Float = 0.8
+
     /// Width of the top that is not covered by other windows; the puddle lies only there.
     var exposedWidth: Float {
         surface.visibleSpans.reduce(0) { $0 + max(0, $1.upper - $1.lower) }
@@ -20,10 +24,14 @@ extension SnowDrift {
             // Props and fully covered tops shed water where it hit.
             return [(max(0, min(surface.width, localX)), area)]
         }
-        let room = max(0, puddleLimit - puddle) * width
-        let kept = min(room, area)
-        puddle += kept / width
-        return area - kept > 0.0001 ? runoff(area - kept) : []
+        let total = puddle * width + area
+        guard total > puddleLimit * width + 0.0001 else {
+            puddle = total / width
+            return []
+        }
+        let kept = puddleLimit * Self.sheetRetention * width
+        puddle = kept / width
+        return runoff(total - kept)
     }
 
     /// Empties the puddle at the ends (the window moved, resized or went away).
@@ -31,6 +39,14 @@ extension SnowDrift {
         let area = puddleArea
         puddle = 0
         return area > 0.0001 ? runoff(area) : []
+    }
+
+    /// Takes up to `area` pt² off the puddle (brushed by the glove) and returns what was taken.
+    func removeWater(_ area: Float) -> Float {
+        let taken = max(0, min(area, puddleArea))
+        let width = exposedWidth
+        if width > 0 { puddle = max(0, puddle - taken / width) }
+        return taken
     }
 
     func evaporate(fraction: Float) {

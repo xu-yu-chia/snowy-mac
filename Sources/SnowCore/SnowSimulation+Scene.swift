@@ -24,6 +24,7 @@ extension SnowSimulation {
         eraseCoveredSnow(inside: changes.appeared)
         eraseReleasedSnow(inside: changes.appeared)
         for body in changes.appeared { looseSnow.erase(inside: body) }
+        if weather == .rain { for motion in changes.moved { pushFlood(with: motion) } }
         let movedIDs = Set(changes.moved.map(\.new.id))
         for motion in changes.moved {
             let pitch = looseSnow.maximumActive > 0 ? looseSnow.cellSize : 3

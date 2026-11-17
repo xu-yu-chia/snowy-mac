@@ -280,8 +280,90 @@ extension SnowSimulation {
             splashes[i].life -= dt
             splashes[i].velocity.y += Self.waterGravity * dt
             splashes[i].position += splashes[i].velocity * dt
+            guard splashes[i].area > 0 else { continue }
+            // Thrown water returns to the flood where it comes down (or when it times out).
+            let x = splashes[i].position.x
+            if (splashes[i].velocity.y > 0 && splashes[i].position.y >= floodSurfaceY(at: x)) || splashes[i].life <= 0 {
+                flood.add(area: splashes[i].area)
+                flood.impulse(at: max(0, min(size.x, x)), velocity: Self.dropRipple * 2)
+                splashes[i].area = 0
+                splashes[i].life = 0
+            }
         }
         splashes.removeAll { $0.life <= 0 }
+    }
+
+    // MARK: Interaction
+
+    static let wakeHalfWidth: Float = 24
+    static let wakeStrength: Float = 0.05
+
+    /// The pointer moving below the water line pushes the surface (down ahead, up behind); a fast
+    /// stroke throws water up and forward. Brushing a top pushes its puddle off the stroke's end.
+    func stirWater(from start: SIMD2<Float>, to end: SIMD2<Float>, dt: Float) {
+        let delta = end - start
+        guard abs(delta.x) > 0.25, dt > 0 else { return }
+        let speed = min(1_200, hypot(delta.x, delta.y) / dt)
+        let direction: Float = delta.x > 0 ? 1 : -1
+        let fast = speed >= Self.flingSpeed
+        if end.y > floodSurfaceY(at: end.x) {
+            let push = speed * Self.wakeStrength * dt * 60 * (tool == .shovel ? 2 : 1)
+            flood.impulse(from: end.x, to: end.x + direction * Self.wakeHalfWidth, velocity: -push)
+            flood.impulse(from: end.x - direction * Self.wakeHalfWidth, to: end.x, velocity: push)
+            if fast {
+                throwWater(flood.take(area: 30), from: end, direction: direction, speed: speed)
+            }
+        }
+        let radius = tool.radius
+        for drift in drifts where drift.puddle > 0.0001 {
+            let s = drift.surface
+            guard max(start.x, end.x) + radius >= s.x, min(start.x, end.x) - radius <= s.x + s.width,
+                  max(start.y, end.y) + radius >= s.y - 4, min(start.y, end.y) - radius <= s.y + 4 else { continue }
+            // Surface tension: once the glove sets part of the puddle moving, the rest follows.
+            let area = drift.removeWater(drift.puddleArea)
+            guard area > 0 else { continue }
+            if fast {
+                throwWater(area, from: SIMD2(max(s.x, min(s.x + s.width, end.x)), s.y - 2), direction: direction, speed: speed)
+            } else {
+                queueRunoff([(direction > 0 ? s.width : 0, area)], from: drift)
+            }
+        }
+    }
+
+    /// Splash droplets carrying `area` pt² of water, flung along the stroke with some lift.
+    private func throwWater(_ area: Float, from point: SIMD2<Float>, direction: Float, speed: Float) {
+        guard area > 0 else { return }
+        let count = 5
+        let room = max(0, Self.maximumSplashes - splashes.count)
+        guard room > 0 else { flood.add(area: area); return }
+        let n = min(count, room)
+        for _ in 0..<n {
+            let velocity = SIMD2(direction * min(500, speed * 0.5) + random.value(-60, 60), -random.value(160, 280))
+            splashes.append(WaterDrip(position: point, velocity: velocity, area: area / Float(n),
+                                      slideUntil: nil, life: 4))
+        }
+    }
+
+    /// A window moving in the flood pushes a wave from its leading side; one lowered into it
+    /// raises a bow wave on both sides. Water volume is unchanged.
+    func pushFlood(with motion: BodyMotion) {
+        let old = motion.old.bounds, new = motion.new.bounds
+        let waterLine = size.y - flood.level
+        guard flood.level > 0.5, Float(new.maxY) > waterLine || Float(old.maxY) > waterLine else { return }
+        let dx = Float(new.minX - old.minX), dy = Float(new.maxY - old.maxY)
+        let reach: Float = 30
+        if abs(dx) > 0.5 {
+            let direction: Float = dx > 0 ? 1 : -1
+            let strength = min(240, abs(dx) * 3)
+            let lead = Float(dx > 0 ? new.maxX : new.minX), trail = Float(dx > 0 ? new.minX : new.maxX)
+            flood.impulse(from: lead, to: lead + direction * reach, velocity: strength)
+            flood.impulse(from: trail - direction * reach, to: trail, velocity: -strength)
+        }
+        if dy > 0.5, Float(new.maxY) > waterLine {
+            let strength = min(240, dy * 3)
+            flood.impulse(from: Float(new.minX) - reach, to: Float(new.minX), velocity: strength)
+            flood.impulse(from: Float(new.maxX), to: Float(new.maxX) + reach, velocity: strength)
+        }
     }
 
     /// Streaks for drops, drips and splash droplets, in that order.

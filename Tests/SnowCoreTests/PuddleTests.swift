@@ -2,7 +2,8 @@ import Foundation
 import XCTest
 @testable import SnowCore
 
-/// In rain each top holds one level puddle (3 pt, Dock 2 pt). Water above that runs off the
+/// In rain each top holds one level puddle (3 pt, Dock 2 pt). Surface tension holds it together:
+/// once it overflows, a whole sheet runs off at once (down to 80 % of the limit) from the
 /// exposed ends, and a top that moves or disappears lets its puddle fall instead of carrying it.
 final class PuddleTests: XCTestCase {
     private func drift(_ surface: Surface) -> SnowDrift {
@@ -17,9 +18,11 @@ final class PuddleTests: XCTestCase {
         let top = drift(Surface(id: 1, x: 100, y: 300, width: 100))
         XCTAssertTrue(top.addWater(area: 200, at: 50).isEmpty)
         XCTAssertEqual(top.puddle, 2, accuracy: 0.0001)
-        let runoff = top.addWater(area: 200, at: 50)
+        XCTAssertTrue(top.addWater(area: 100, at: 50).isEmpty, "Full to the rim is still held")
         XCTAssertEqual(top.puddle, 3, accuracy: 0.0001)
-        XCTAssertEqual(total(runoff), 100, accuracy: 0.001)
+        let runoff = top.addWater(area: 10, at: 50)
+        XCTAssertEqual(top.puddle, 2.4, accuracy: 0.0001, "Surface tension takes a whole sheet with it")
+        XCTAssertEqual(total(runoff), 70, accuracy: 0.001)
     }
 
     func testOverflowSplitsEquallyOnALevelTop() {
@@ -27,8 +30,8 @@ final class PuddleTests: XCTestCase {
         let runoff = top.addWater(area: 500, at: 30)
         XCTAssertEqual(runoff.count, 2)
         let start = runoff.first { $0.localX == 0 }, end = runoff.first { $0.localX == 100 }
-        XCTAssertEqual(start?.area ?? 0, 100, accuracy: 0.001)
-        XCTAssertEqual(end?.area ?? 0, 100, accuracy: 0.001)
+        XCTAssertEqual(start?.area ?? 0, 130, accuracy: 0.001)
+        XCTAssertEqual(end?.area ?? 0, 130, accuracy: 0.001)
     }
 
     func testTiltedTopRunsOffTheLowerEnd() {
@@ -36,23 +39,24 @@ final class PuddleTests: XCTestCase {
         let runoff = top.addWater(area: 500, at: 30)
         XCTAssertEqual(runoff.count, 1)
         XCTAssertEqual(runoff.first?.localX ?? -1, 100)
-        XCTAssertEqual(total(runoff), 200, accuracy: 0.001)
+        XCTAssertEqual(total(runoff), 260, accuracy: 0.001)
     }
 
     func testCoveredEndSendsRunoffToTheOtherEnd() {
         let top = drift(Surface(id: 1, x: 100, y: 300, width: 100, visibleSpans: [Span(0, 60)]))
         let runoff = top.addWater(area: 300, at: 30)
-        XCTAssertEqual(top.puddle, 3, accuracy: 0.0001)
+        XCTAssertEqual(top.puddle, 2.4, accuracy: 0.0001)
         XCTAssertEqual(runoff.count, 1)
         XCTAssertEqual(runoff.first?.localX ?? -1, 0)
-        XCTAssertEqual(total(runoff), 120, accuracy: 0.001)
+        XCTAssertEqual(total(runoff), 156, accuracy: 0.001)
     }
 
     func testDockPuddleLimitIsTwo() {
         let dock = drift(Surface(id: 7, x: 100, y: 700, width: 400, isDock: true))
         XCTAssertEqual(dock.puddleLimit, 2)
         _ = dock.addWater(area: 10_000, at: 100)
-        XCTAssertEqual(dock.puddle, 2, accuracy: 0.0001)
+        XCTAssertEqual(dock.puddle, 1.6, accuracy: 0.0001)
+        XCTAssertLessThanOrEqual(dock.puddle, dock.puddleLimit)
     }
 
     func testPropsHoldNoWater() {

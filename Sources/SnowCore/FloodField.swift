@@ -46,6 +46,21 @@ public final class FloodField {
         velocities[index(at: x)] += velocity
     }
 
+    /// Kicks every sample between `x0` and `x1` (either order).
+    func impulse(from x0: Float, to x1: Float, velocity: Float) {
+        guard velocity.isFinite else { return }
+        let lower = index(at: min(x0, x1)), upper = index(at: max(x0, x1))
+        for i in lower...upper { velocities[i] += velocity }
+    }
+
+    /// Removes up to `area` pt² (thrown up by a splash) and returns what was taken.
+    func take(area: Float) -> Float {
+        guard area > 0 else { return 0 }
+        let taken = min(area, level * width)
+        level -= taken / width
+        return taken
+    }
+
     func step(dt: Float) {
         guard dt > 0 else { return }
         easeTowardCap(dt: dt)

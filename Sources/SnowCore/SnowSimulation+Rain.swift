@@ -399,8 +399,38 @@ extension SnowSimulation {
         for i in splashes.indices {
             splashes[i].life -= dt
             splashes[i].velocity.y += Self.waterGravity * dt
-            splashes[i].position += splashes[i].velocity * dt
-            guard splashes[i].area > 0 else { continue }
+            let start = splashes[i].position
+            let end = start + splashes[i].velocity * dt
+            splashes[i].position = end
+            guard splashes[i].area > 0 else {
+                // A purely visual droplet ends where it meets a window.
+                if bodyBuckets[bucket(at: max(0, min(size.x, end.x)))].contains(where: { bodies[$0].contains(end) }) {
+                    splashes[i].life = 0
+                }
+                continue
+            }
+            // Thrown water meets windows like rain: a top keeps it, a side turns it into a drip.
+            if let hit = rainTopHit(from: start, to: end, includeProps: false) {
+                let drift = drifts[hit.index]
+                queueRunoff(drift.addWater(area: splashes[i].area, at: hit.localX), from: drift)
+                splashes[i].area = 0
+                splashes[i].life = 0
+                continue
+            }
+            switch rainWallHit(from: start, to: end) {
+            case .wall(let point, let bottom):
+                addDrip(at: point, area: splashes[i].area, slideUntil: bottom)
+                splashes[i].area = 0
+                splashes[i].life = 0
+                continue
+            case .hidden:
+                flood.add(area: splashes[i].area)
+                splashes[i].area = 0
+                splashes[i].life = 0
+                continue
+            case .none:
+                break
+            }
             // Thrown water returns to the flood where it comes down (or when it times out).
             let x = splashes[i].position.x
             if (splashes[i].velocity.y > 0 && splashes[i].position.y >= floodSurfaceY(at: x)) || splashes[i].life <= 0 {

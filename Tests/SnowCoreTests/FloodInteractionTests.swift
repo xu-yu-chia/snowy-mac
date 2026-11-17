@@ -62,6 +62,22 @@ final class FloodInteractionTests: XCTestCase {
         XCTAssertEqual(volume(simulation), volume(control), accuracy: volume(control) * 0.01)
     }
 
+    func testThrownWaterDoesNotPassThroughWindows() {
+        let wall = (Surface(id: 1, x: 1000, y: 700, width: 300),
+                    SolidBody(id: 1, bounds: CGRect(x: 1000, y: 700, width: 300, height: 380)))
+        let simulation = world(window: wall), control = world(window: wall)
+        stroke(simulation, from: SIMD2(820, 1060), velocity: SIMD2(900, 0), frames: 6)
+        stroke(control, from: SIMD2(820, 500), velocity: SIMD2(900, 0), frames: 6)
+        XCTAssertTrue(simulation.splashes.contains { $0.area > 0 })
+        for _ in 0..<180 {
+            simulation.step(dt: 1 / 60, cursor: nil)
+            control.step(dt: 1 / 60, cursor: nil)
+            XCTAssertFalse(simulation.splashes.contains { wall.1.contains($0.position) }, "No droplet inside the window")
+        }
+        let held = simulation.drifts.reduce(0) { $0 + $1.puddleArea } - control.drifts.reduce(0) { $0 + $1.puddleArea }
+        XCTAssertEqual(volume(simulation) + held, volume(control), accuracy: volume(control) * 0.01, "Water is conserved")
+    }
+
     func testSlowStrokeDoesNotSplash() {
         let simulation = world()
         stroke(simulation, from: SIMD2(900, 1060), velocity: SIMD2(200, 0), frames: 6)

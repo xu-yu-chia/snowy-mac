@@ -57,4 +57,19 @@ final class FlakeDrivenAccumulationTests: XCTestCase {
         let roughest = zip(h, h.dropFirst()).map { abs($0 - $1) }.max() ?? 0
         XCTAssertLessThan(roughest, 2.5, "Individual landings left a lumpy surface")
     }
+
+    /// A top under an overhanging window (like the Dock below a large window) is in the ambient
+    /// snowfall shadow, but a flake that the wind actually carries in underneath still lands.
+    func testFlakeBlownUnderAnOverhangStillLeavesSnow() {
+        let overhang = SolidBody(id: 2, bounds: CGRect(x: 250, y: 300, width: 600, height: 200))
+        let simulation = world(flakes: 0, extraBodies: [overhang])
+        let shadowed = Surface(id: 1, x: 300, y: 600, width: 400, snowfallSpans: [])
+        simulation.updateScene(surfaces: [shadowed], bodies: [body, overhang])
+        simulation.clear()
+        XCTAssertFalse(cap(simulation).surface.isSnowExposed(at: 100), "Ambient snowfall cannot reach it")
+        var flake = SnowParticle(position: SIMD2(380, 560), velocity: SIMD2(30, 60), radius: 1.5,
+                                 opacity: 1, phase: 0, remainingLife: 100, mass: 1)
+        XCTAssertTrue(simulation.advanceParticle(&flake, dt: 1, recycleOnContact: true))
+        XCTAssertGreaterThan(cap(simulation).heights.reduce(0, +), 0, "The flake that landed left no snow")
+    }
 }

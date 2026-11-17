@@ -235,8 +235,10 @@ public final class SnowDrift {
         for i in heights.indices { heights[i] *= keep }
     }
 
-    /// Snow a landing flake brings, spread in a bell around where it touched (±3 samples), only on
-    /// samples snowfall can reach and up to the snowfall limit. Returns the area that did not fit.
+    /// Snow a landing flake brings, spread in a bell around where it touched (±3 samples), on visible
+    /// samples and up to the snowfall limit. The flake really arrived, so the ambient snowfall shadow
+    /// under an overhanging window does not apply (a flake blown in underneath still settles); the
+    /// wind wake at a corner still does. Returns the area that did not fit.
     func depositSnowfall(at localX: Float, mass: Float) -> Float {
         guard mass.isFinite, mass > 0, localX >= 0, localX <= surface.width, spacing > 0 else { return mass }
         let center = max(0, min(heights.count - 1, Int((localX / spacing).rounded())))
@@ -245,7 +247,7 @@ public final class SnowDrift {
         var rest = mass
         for offset in -3...3 {
             let i = center + offset
-            guard heights.indices.contains(i), surface.isSnowExposed(at: Float(i) * spacing),
+            guard heights.indices.contains(i), surface.isExposed(at: Float(i) * spacing),
                   !cornerWind[i].clear else { continue }
             let share = mass * weights[abs(offset)]
             let accepted = min(share, max(0, snowfallCapacities[i] - heights[i]) * spacing)

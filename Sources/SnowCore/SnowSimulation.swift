@@ -115,6 +115,8 @@ public final class SnowSimulation {
         var mass: Float
     }
     var snowReleases: [SnowRelease] = []
+    /// Rain water that left a top (overflow, a moved or closed window) and still has to fall.
+    var pendingRunoff: [(position: SIMD2<Float>, area: Float)] = []
     var carriedContacts: [SnowRelease] = []
     var releaseScratch: [SnowRelease] = []
     var releaseIntervals: [Span] = []

@@ -93,6 +93,7 @@ extension SnowSimulation {
         let incomingIDs = Set(surfaces.map(\.id))
         for drift in drifts where !incomingIDs.contains(drift.surface.id) {
             retainReleasedSnow(from: drift, coveredBy: windBodies)
+            releasePuddle(of: drift)
         }
         var next: [SnowDrift] = []
         next.reserveCapacity(surfaces.count)
@@ -120,11 +121,13 @@ extension SnowSimulation {
                     } else {
                         drift = SnowDrift(surface: surface, cellCount: count)
                         drift.copySnow(from: previous)
+                        drift.puddle = min(previous.puddle, drift.puddleLimit)
                         releaseTrimmedDockSnow(from: previous, to: drift)
                     }
                 } else {
                     // Window and widget snow stays put on screen; what loses its support falls.
                     drift = SnowDrift(surface: surface, cellCount: count)
+                    releasePuddle(of: previous)
                     for fall in drift.carry(from: previous) {
                         retainRelease(SnowRelease(position: SIMD2(max(1, min(size.x - 1, fall.position.x)),
                                                                   max(1, fall.position.y)),
@@ -231,6 +234,17 @@ extension SnowSimulation {
             let effects = WindCorners.effects(for: drift.surface, cellCount: drift.heights.count,
                                               bodies: bodies, wind: wind.velocity)
             drift.applyCornerWind(effects)
+        }
+    }
+}
+
+extension SnowSimulation {
+    /// Water does not ride a window: a top that moves, resizes or goes away lets its puddle fall
+    /// from its old ends.
+    func releasePuddle(of drift: SnowDrift) {
+        let surface = drift.surface
+        for part in drift.releasePuddle() {
+            pendingRunoff.append((SIMD2(surface.x + part.localX, surface.baseY(at: part.localX) - 1), part.area))
         }
     }
 }

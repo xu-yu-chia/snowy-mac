@@ -11,6 +11,8 @@ public final class SnowDrift {
     private var baseDeposition: [Float]
     private var snowfallCapacities: [Float]
     private(set) var cornerWind: [CornerWindEffect]
+    /// Depth (pt) of the level rain puddle on this top.
+    public internal(set) var puddle: Float = 0
 
     init(surface: Surface, cellCount: Int, windEffects: [CornerWindEffect]? = nil) {
         self.surface = surface

@@ -30,12 +30,15 @@ public struct Surface: Equatable, Sendable {
     /// Top-edge dy/dx of a perspective-tilted support (Stage Manager strip thumbnail); the
     /// contour touches `y` at its higher end. Zero for ordinary windows.
     public var slope: Float
+    /// Rain puddles collect here. Decoration props let water run straight off.
+    public var holdsWater: Bool
     public var minimumWidth: Float { releasesSnowWhenRemoved && !isElevated ? 5 : 16 }
 
     public init(id: UInt64, x: Float, y: Float, width: Float,
                 visibleSpans: [Span]? = nil, isDock: Bool = false,
                 cornerRadius: Float = 0, snowfallSpans: [Span]? = nil,
-                releasesSnowWhenRemoved: Bool = false, isElevated: Bool? = nil, slope: Float = 0) {
+                releasesSnowWhenRemoved: Bool = false, isElevated: Bool? = nil, slope: Float = 0,
+                holdsWater: Bool = true) {
         self.id = id
         self.x = x
         self.y = y
@@ -47,6 +50,7 @@ public struct Surface: Equatable, Sendable {
         self.releasesSnowWhenRemoved = releasesSnowWhenRemoved
         self.isElevated = isElevated ?? releasesSnowWhenRemoved
         self.slope = slope.isFinite ? slope : 0
+        self.holdsWater = holdsWater
     }
 
     /// Vertical extent of the contour below `y`.

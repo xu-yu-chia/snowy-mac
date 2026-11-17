@@ -31,8 +31,10 @@ extension SnowSimulation {
     static let dropSpeedRange: Float = 300
     static let dripSlideSpeed: Float = 120
     static let waterGravity: Float = 900
-    static let dropRipple: Float = -6
-    static let dripRipple: Float = -24
+    static let dropRipple: Float = -45
+    static let dripRipple: Float = -90
+    /// Half-width (pt) of the surface a landing drop kicks, so its ring is visible.
+    static let rippleReach: Float = 6
 
     /// Water (pt²/s) the rain brings to the whole display.
     var rainFlux: Float { flood.cap * size.x / Self.rainFillSeconds * snowfall.density }
@@ -54,9 +56,16 @@ extension SnowSimulation {
         while raindrops.count < desired { raindrops.append(newRaindrop(scattered: true)) }
         if raindrops.isEmpty {
             rainAmbient(dt: dt)
+            rainLandingRate = 0
         } else {
-            let area = rainAreaPerDrop
+            // Drops landing on high window tops fall a shorter way and land more often, so the
+            // water per drop follows the measured landing rate (the geometric estimate warms it up).
+            let area = rainLandingRate > 1 ? rainFlux / rainLandingRate : rainAreaPerDrop
+            rainLandings = 0
             for i in raindrops.indices { advanceRaindrop(i, area: area, dt: dt) }
+            let instant = Float(rainLandings) / dt
+            rainLandingRate = rainLandingRate > 1 ? rainLandingRate + (instant - rainLandingRate) * min(1, dt / 2)
+                : instant
         }
         releaseRunoff()
         stepDrips(dt: dt)
@@ -121,7 +130,7 @@ extension SnowSimulation {
         let surface = floodSurfaceY(at: end.x)
         if end.y >= surface {
             flood.add(area: area)
-            flood.impulse(at: end.x, velocity: Self.dropRipple)
+            flood.impulse(from: end.x - Self.rippleReach, to: end.x + Self.rippleReach, velocity: Self.dropRipple)
             splash(at: SIMD2(end.x, surface))
             recycleDrop(i, respawn: respawn)
             return
@@ -133,7 +142,7 @@ extension SnowSimulation {
     }
 
     private func recycleDrop(_ i: Int, respawn: Bool) {
-        if respawn { raindrops[i] = newRaindrop(scattered: false) } else { raindrops[i].depth = -1 }
+        if respawn { rainLandings += 1; raindrops[i] = newRaindrop(scattered: false) } else { raindrops[i].depth = -1 }
     }
 
     // MARK: Transitions
@@ -161,8 +170,9 @@ extension SnowSimulation {
         releaseRunoff()
         stepDrips(dt: dt)
         stepSplashes(dt: dt)
-        for drift in drifts where drift.puddle > 0 {
+        for drift in drifts where drift.puddle > 0 || drift.hanging != (0, 0) {
             drift.puddle = max(0, drift.puddle - drift.puddleLimit / Self.drainSeconds * dt)
+            drift.hanging = (0, 0)
             meshDirty = true
         }
         if flood.level > 0 {
@@ -267,9 +277,46 @@ extension SnowSimulation {
     func queueRunoff(_ parts: [(localX: Float, area: Float)], from drift: SnowDrift) {
         let s = drift.surface
         for part in parts where part.area > 0 {
+            if drift.isContainer {
+                // Over the wall: the water leaves from the wall's top, on the wall's side.
+                let outward: Float = part.localX <= s.width / 2 ? -2 : 2
+                pendingRunoff.append((SIMD2(s.x + part.localX + outward, s.y - drift.puddleLimit - 1), part.area))
+                continue
+            }
             let nudge: Float = part.localX <= 0.5 ? -1.5 : (part.localX >= s.width - 0.5 ? 1.5 : 0)
             pendingRunoff.append((SIMD2(s.x + part.localX + nudge, s.baseY(at: part.localX) - 1), part.area))
         }
+    }
+
+    /// A top with a taller window right beside each visible end is a container (see
+    /// `SnowDrift.puddleLimit`). Water above a lowered limit spills over.
+    func refreshContainers() {
+        for drift in drifts {
+            let s = drift.surface
+            guard holdsRain(s), let first = s.visibleSpans.map(\.lower).min(),
+                  let last = s.visibleSpans.map(\.upper).max() else {
+                drift.containerWalls = (nil, nil)
+                continue
+            }
+            drift.containerWalls = (wallHeight(besideX: s.x + first - 1, topY: s.y),
+                                    wallHeight(besideX: s.x + last + 1, topY: s.y))
+            let width = drift.exposedWidth
+            if drift.puddle > drift.puddleLimit, width > 0 {
+                let excess = (drift.puddle - drift.puddleLimit) * width
+                drift.puddle = drift.puddleLimit
+                queueRunoff(drift.addWater(area: excess, at: s.width / 2), from: drift)
+            }
+        }
+    }
+
+    private func wallHeight(besideX x: Float, topY: Float) -> Float? {
+        guard x > 0, x < size.x else { return nil }
+        var tallest: Float?
+        for body in bodies where !body.isElevated && body.contains(SIMD2(x, topY - 0.5)) {
+            let rise = topY - Float(body.bounds.minY)
+            if rise > 0.5 { tallest = max(tallest ?? 0, rise) }
+        }
+        return tallest
     }
 
     /// Turns queued runoff into drips (sliding down the wall below when there is one). Without
@@ -325,7 +372,7 @@ extension SnowSimulation {
             let surface = floodSurfaceY(at: end.x)
             if end.y >= surface {
                 flood.add(area: drip.area)
-                flood.impulse(at: end.x, velocity: Self.dripRipple)
+                flood.impulse(from: end.x - Self.rippleReach, to: end.x + Self.rippleReach, velocity: Self.dripRipple)
                 splash(at: SIMD2(end.x, surface))
                 continue
             }
@@ -335,14 +382,15 @@ extension SnowSimulation {
         drips = kept
     }
 
-    /// 1–3 visual droplets thrown up where water lands.
+    /// 3–5 visual droplets thrown up where water lands; one always jumps well clear.
     func splash(at point: SIMD2<Float>) {
         guard !reducedMotion else { return }
-        let count = 1 + Int(random.unit() * 2.99)
-        for _ in 0..<count where splashes.count < Self.maximumSplashes {
+        let count = 3 + Int(random.unit() * 2.99)
+        for k in 0..<count where splashes.count < Self.maximumSplashes {
+            let lift = k == 0 ? random.value(170, 260) : random.value(90, 220)
             splashes.append(WaterDrip(position: point,
-                                      velocity: SIMD2(random.value(-70, 70), -random.value(60, 150)),
-                                      area: 0, slideUntil: nil, life: random.value(0.15, 0.3)))
+                                      velocity: SIMD2(random.value(-90, 90), -lift),
+                                      area: 0, slideUntil: nil, life: random.value(0.25, 0.45)))
         }
     }
 
@@ -453,8 +501,8 @@ extension SnowSimulation {
             out.append(StreakInstance(position: drip.position, vector: SIMD2(0, 6), width: 1.6, opacity: 0.6))
         }
         for splash in splashes {
-            out.append(StreakInstance(position: splash.position, vector: splash.velocity * 0.02, width: 1,
-                                      opacity: 0.5 * min(1, splash.life / 0.15)))
+            out.append(StreakInstance(position: splash.position, vector: splash.velocity * 0.025, width: 1.4,
+                                      opacity: 0.8 * min(1, splash.life / 0.15)))
         }
         return out
     }

@@ -33,6 +33,9 @@ public final class SnowSimulation {
     }
     /// Flood drain rate (pt/s) after the rain stops, so it is gone in ~20 s.
     var drainRate: Float = 0
+    /// Measured raindrop landings per second (smoothed), so each drop carries flux / rate.
+    var rainLandingRate: Float = 0
+    var rainLandings = 0
     public internal(set) lazy var flood = FloodField(width: size.x)
     public internal(set) var raindrops: [Raindrop] = []
     public internal(set) var drips: [WaterDrip] = []
@@ -194,6 +197,7 @@ public final class SnowSimulation {
         updateSurfaces(surfaces, windBodies: bodies)
         ploughsSupportedSnow = userMotion
         updateBodies(bodies)
+        refreshContainers()
         ploughsSupportedSnow = true
         refreshCornerWind()
         applySupportTransfers()

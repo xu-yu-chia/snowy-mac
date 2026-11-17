@@ -38,6 +38,32 @@ final class RainTests: XCTestCase {
         XCTAssertEqual(simulation.flood.level, simulation.flood.cap, accuracy: 0.001)
     }
 
+    func testFillRateDoesNotDependOnWindows() {
+        // Many tops shorten the drops' fall; the flood must still fill at the designed pace.
+        let tops = (0..<8).map { i -> (Surface, SolidBody) in
+            let x = Float(i) * 230 + 20, y = Float(150 + (i % 3) * 120)
+            return (Surface(id: UInt64(i + 1), x: x, y: y, width: 200),
+                    SolidBody(id: UInt64(i + 1), bounds: CGRect(x: CGFloat(x), y: CGFloat(y), width: 200, height: 600)))
+        }
+        let simulation = SnowSimulation(size: SIMD2(1920, 1080), budget: SimulationBudget(flakes: 400, debris: 96), seed: 11)
+        simulation.updateScene(surfaces: [floor] + tops.map(\.0), bodies: tops.map(\.1))
+        simulation.clear()
+        simulation.weather = .rain
+        run(simulation, seconds: 60)
+        let water = simulation.flood.level * 1920 + simulation.drifts.reduce(0) { $0 + $1.puddleArea }
+            + simulation.drips.reduce(0) { $0 + $1.area } + simulation.pendingRunoff.reduce(0) { $0 + $1.area }
+        let expected = FloodField.fallbackCap * 1920 / 300 * 60
+        XCTAssertEqual(water, expected, accuracy: expected * 0.25)
+    }
+
+    func testDropsSplashVisiblyIntoWater() {
+        let simulation = world()
+        simulation.splash(at: SIMD2(500, 1000))
+        XCTAssertGreaterThanOrEqual(simulation.splashes.count, 3)
+        XCTAssertTrue(simulation.splashes.contains { -$0.velocity.y >= 150 }, "Some droplets jump well clear of the surface")
+        XCTAssertLessThanOrEqual(SnowSimulation.dropRipple, -12, "A landing drop rings the surface")
+    }
+
     func testDensityOrdersFillRate() {
         let levels = [Snowfall.light, .steady, .flurry].map { density -> Float in
             let simulation = world(density)

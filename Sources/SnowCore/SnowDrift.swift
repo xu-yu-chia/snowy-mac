@@ -13,6 +13,10 @@ public final class SnowDrift {
     private(set) var cornerWind: [CornerWindEffect]
     /// Depth (pt) of the level rain puddle on this top.
     public internal(set) var puddle: Float = 0
+    /// Overflow water gathering at each end before it falls as a drop.
+    var hanging: (start: Float, end: Float) = (0, 0)
+    /// How far taller windows rise above this top right beside each visible end (nil: no wall).
+    var containerWalls: (start: Float?, end: Float?) = (nil, nil)
 
     init(surface: Surface, cellCount: Int, windEffects: [CornerWindEffect]? = nil) {
         self.surface = surface
@@ -374,6 +378,7 @@ public final class SnowDrift {
     func clear() {
         for i in heights.indices { heights[i] = 0 }
         puddle = 0
+        hanging = (0, 0)
     }
 
     /// Lowers every sample by up to `amount` pt and returns the melted area (pt²).

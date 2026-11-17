@@ -120,7 +120,8 @@ final class PhysicsWorldTests: XCTestCase {
         for i in source.heights.indices.dropFirst().dropLast() { source.heights[i] = 4 }
         simulation.step(dt: 1 / 30, cursor: SIMD2(90, 117))
         simulation.step(dt: 1 / 30, cursor: SIMD2(310, 117))
-        XCTAssertGreaterThan(simulation.looseSnow.totalMass, 0)
+        // A stroke this fast flings the brushed snow as clumps; either way it is now off the top.
+        XCTAssertGreaterThan(simulation.looseSnow.totalMass + simulation.clumps.reduce(0) { $0 + $1.mass }, 0)
         for _ in 0..<150 {
             simulation.step(dt: 1 / 30, cursor: nil)
             control.step(dt: 1 / 30, cursor: nil)

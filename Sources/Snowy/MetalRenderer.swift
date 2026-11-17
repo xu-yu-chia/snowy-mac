@@ -106,7 +106,8 @@ final class MetalRenderer: NSObject, MTKViewDelegate {
         view.delegate = self
         for _ in 0..<2 {
             guard let particles = context.device.makeBuffer(
-                length: max(16, budget.flakes * MemoryLayout<ParticleInstance>.stride),
+                // Falling flakes plus clumps flung by the glove share one instance buffer.
+                length: max(16, (budget.flakes + SnowSimulation.maximumClumps) * MemoryLayout<ParticleInstance>.stride),
                 options: .cpuCacheModeWriteCombined),
                   let mesh = context.device.makeBuffer(
                     length: max(16, budget.maximumSnowVertices * MemoryLayout<SnowVertex>.stride),
@@ -148,11 +149,12 @@ final class MetalRenderer: NSObject, MTKViewDelegate {
               let command = context.queue.makeCommandBuffer(),
               let encoder = command.makeRenderCommandEncoder(descriptor: pass) else { return }
         let slot = slots[slotIndex]
-        let count = simulation.flakes.count
+        let count = simulation.flakes.count + simulation.clumps.count
         let particles = slot.particles.contents().bindMemory(to: ParticleInstance.self,
                                                             capacity: max(1, count))
         var offset = 0
         for particle in simulation.flakes { particles[offset] = ParticleInstance(particle); offset += 1 }
+        for clump in simulation.clumps { particles[offset] = ParticleInstance(clump); offset += 1 }
         if count > 0, slot.particles.storageMode == .managed {
             slot.particles.didModifyRange(0..<(count * MemoryLayout<ParticleInstance>.stride))
         }

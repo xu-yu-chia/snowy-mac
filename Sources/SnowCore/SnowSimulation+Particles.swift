@@ -62,7 +62,8 @@ extension SnowSimulation {
 
     /// Integrates a bounded number of continuous contacts rather than teleporting through rectangles.
     @discardableResult
-    func advanceParticle(_ particle: inout SnowParticle, dt: Float, recycleOnContact: Bool = false) -> Bool {
+    func advanceParticle(_ particle: inout SnowParticle, dt: Float, recycleOnContact: Bool = false,
+                         slides: Bool = false) -> Bool {
         var remaining = dt
         for _ in 0..<3 {
             let start = particle.position
@@ -104,6 +105,23 @@ extension SnowSimulation {
                                                   mass: particle.mass * max(1, flakeMassScale))
                 meshDirty = true
                 return true
+            }
+            if let index = hit.drift, slides {
+                // A flung clump keeps its momentum: it smears forward along the top it hit, and
+                // whatever runs past the end flies on from the edge.
+                let drift = drifts[index]
+                let direction: Float = particle.velocity.x >= 0 ? 1 : -1
+                let distance = max(6, min(160, abs(particle.velocity.x) * 0.2))
+                let over = drift.depositSliding(at: hit.position.x - drift.surface.x, mass: particle.mass,
+                                                direction: direction, distance: distance)
+                meshDirty = true
+                guard over > 0.0001 else { return true }
+                let edgeLocal: Float = direction > 0 ? drift.surface.width : 0
+                particle.mass = over
+                particle.position = SIMD2(drift.surface.x + edgeLocal + direction * (particle.radius + 1),
+                                          drift.surface.baseY(at: edgeLocal) - particle.radius)
+                particle.velocity = SIMD2(particle.velocity.x * 0.6, 20)
+                return false
             }
             if let index = hit.drift {
                 particle.mass = drifts[index].depositMass(at: hit.position.x - drifts[index].surface.x,

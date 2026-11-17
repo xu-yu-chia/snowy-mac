@@ -256,6 +256,44 @@ public final class SnowDrift {
         return max(0, rest)
     }
 
+    /// A flung clump landing at `localX` and sliding `distance` points in `direction` (±1).
+    /// The area is laid evenly along the path, filling up to capacity and carrying any excess as
+    /// a low, even overload rather than a hill at the landing point. The share of the path that
+    /// runs past an exposed end is returned: that snow leaves over the edge.
+    func depositSliding(at localX: Float, mass: Float, direction: Float, distance: Float) -> Float {
+        guard mass.isFinite, mass > 0, spacing > 0, distance > 0 else { return 0 }
+        let start = max(0, min(surface.width, localX))
+        let finish = start + direction * distance
+        let clipped = max(0, min(surface.width, finish))
+        let onTop = abs(clipped - start)
+        let endLocal: Float = direction > 0 ? surface.width : 0
+        let endOpen = surface.isExposed(at: direction > 0 ? max(0, surface.width - spacing) : min(surface.width, spacing))
+        var over = endOpen ? mass * max(0, distance - onTop) / distance : 0
+        var lay = mass - over
+        var path: [Int] = []
+        let first = Int((min(start, clipped) / spacing).rounded())
+        let last = Int((max(start, clipped) / spacing).rounded())
+        for i in max(0, first)...min(heights.count - 1, max(first, last))
+        where surface.isExposed(at: Float(i) * spacing) { path.append(i) }
+        // Nowhere visible to land on (the path is covered): the whole clump flies on.
+        guard !path.isEmpty else { _ = endLocal; return mass }
+        let share = lay / Float(path.count)
+        var excess: Float = 0
+        for i in path {
+            let room = max(0, capacities[i] - heights[i]) * spacing
+            let accepted = min(share, room)
+            heights[i] += accepted / spacing
+            excess += share - accepted
+        }
+        lay = 0
+        // Whatever did not fit rides on as a thin, even layer over the same path.
+        if excess > 0.0001 {
+            for i in path { heights[i] += excess / Float(path.count) / spacing }
+        }
+        if !endOpen { over = 0 }
+        return over
+    }
+
     /// Room left (area, square points) within `band` points of `localX`.
     func spareArea(near localX: Float, band: Float) -> Float {
         heights.indices.reduce(Float(0)) { sum, i in

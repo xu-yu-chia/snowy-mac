@@ -22,6 +22,52 @@ public final class SnowSimulation {
     static let meanFlakeMass: Float = 0.859
     /// Area (square points) each landing flake leaves, per unit of its own mass.
     var flakeMassScale: Float = 0
+    /// Snow flung by a fast glove stroke, in flight. Each carries real area (`mass`).
+    public internal(set) var clumps: [SnowParticle] = []
+    public static let maximumClumps = 96
+
+    /// Glove strokes faster than this (pt/s) fling the snow they brush off.
+    static let flingSpeed: Float = 450
+
+    /// Starts a clump in flight. When too many are already flying, the area joins the granular
+    /// field instead, so nothing is lost.
+    func launchClump(at position: SIMD2<Float>, velocity: SIMD2<Float>, mass: Float) {
+        guard mass > 0.0001, position.x.isFinite, position.y.isFinite else { return }
+        guard clumps.count < Self.maximumClumps else {
+            let rest = looseSnow.add(mass: mass, at: position, direction: velocity)
+            if rest > 0.0001 { retainRelease(SnowRelease(position: position, height: 4, mass: rest), in: &snowReleases) }
+            return
+        }
+        clumps.append(SnowParticle(position: position, velocity: velocity,
+                                   radius: max(1.6, min(4, sqrt(mass) * 0.55)), opacity: 0.95,
+                                   phase: 0, remainingLife: 3, mass: mass))
+    }
+
+    /// Flies clumps under gravity and light drag. A clump that lands slides on along the top it
+    /// hit (see `depositSliding`); one that runs out of time or leaves the screen settles into
+    /// the granular field where it is.
+    func stepClumps(dt: Float) {
+        guard !clumps.isEmpty else { return }
+        var flying: [SnowParticle] = []
+        flying.reserveCapacity(clumps.count)
+        for var clump in clumps {
+            clump.velocity.y += 900 * dt
+            clump.velocity *= max(0, 1 - 0.6 * dt)
+            clump.remainingLife -= dt
+            let landed = advanceParticle(&clump, dt: dt, slides: true)
+            if landed || clump.mass <= 0.0001 { continue }
+            let outside = clump.position.y > size.y + 4 || clump.position.x < -8 || clump.position.x > size.x + 8
+            if clump.remainingLife <= 0 || outside {
+                let point = SIMD2(max(1, min(size.x - 1, clump.position.x)), max(1, min(size.y - 1, clump.position.y)))
+                let rest = looseSnow.add(mass: clump.mass, at: point)
+                if rest > 0.0001 { retainRelease(SnowRelease(position: point, height: 4, mass: rest), in: &snowReleases) }
+                continue
+            }
+            flying.append(clump)
+        }
+        clumps = flying
+        meshDirty = true
+    }
 
     /// Chosen so landed flakes build piles at the ambient mean rate whatever the flake count:
     /// rate · width · height / (flakes · mean fall speed · mean flake mass).
@@ -221,6 +267,7 @@ public final class SnowSimulation {
             if particle.position.x > size.x + 8 { particle.position.x = -4 }
             flakes[i] = particle
         }
+        stepClumps(dt: dt)
         let looseRevision = looseSnow.revision
         looseSnow.step(dt: dt, wind: self.wind.velocity) { [unowned self] from, to, mass in
             self.landGranularSnow(from: from, to: to, mass: mass)

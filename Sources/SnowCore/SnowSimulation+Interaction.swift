@@ -9,6 +9,17 @@ extension SnowSimulation {
         guard hard || travel > 0.01 else { return }
         let radius = tool.radius
         let strength: Float = hard ? 1 : min(0.7, travel / (radius * 1.2))
+        // A fast glove stroke flings the snow it brushes off along the stroke, with a little lift;
+        // a slow push keeps the gentle cellular push.
+        let speed = dt > 0 ? travel / dt : 0
+        let flings = !hard && speed >= Self.flingSpeed
+        let flingVelocity = flings ? (delta / travel) * min(700, speed * 0.55) + SIMD2(0, -120) : .zero
+        var pending: (mass: Float, weighted: SIMD2<Float>) = (0, .zero)
+        func launchPending() {
+            guard pending.mass > 0.0001 else { return }
+            launchClump(at: pending.weighted / pending.mass, velocity: flingVelocity, mass: pending.mass)
+            pending = (0, .zero)
+        }
         for drift in drifts {
             guard max(start.x, end.x) + radius >= drift.surface.x,
                   min(start.x, end.x) - radius <= drift.surface.x + drift.surface.width,
@@ -30,6 +41,16 @@ extension SnowSimulation {
                 // The glove releases just the volume contacted during this movement.
                 let removed = hard ? drift.heights[i] : min(drift.heights[i], overlap * strength)
                 let mass = removed * drift.spacing
+                if flings, !drift.surface.releasesSnowWhenRemoved {
+                    // Gather the brushed snow into clumps of up to ~12 square points each.
+                    drift.heights[i] -= removed
+                    pending.mass += mass
+                    pending.weighted += SIMD2(point.x, base - drift.heights[i] - 2) * mass
+                    if pending.mass >= 12 { launchPending() }
+                    meshDirty = true
+                    interactionDirty = true
+                    continue
+                }
                 let direction = travel > 0.01 ? delta / travel : point - end
                 let ingress = SIMD2(point.x, min(point.y, base - looseSnow.cellSize * 0.65))
                 let unplaced = looseSnow.add(mass: mass, at: ingress, direction: direction,
@@ -48,6 +69,7 @@ extension SnowSimulation {
                 meshDirty = true
                 interactionDirty = true
             }
+            launchPending()
         }
         looseSnow.brush(from: start, to: end, radius: radius, hard: hard)
     }

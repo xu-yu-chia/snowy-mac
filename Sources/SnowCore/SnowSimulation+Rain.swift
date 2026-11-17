@@ -91,7 +91,7 @@ extension SnowSimulation {
                         depth: depth)
     }
 
-    private func advanceRaindrop(_ i: Int, area: Float, dt: Float) {
+    private func advanceRaindrop(_ i: Int, area: Float, dt: Float, respawn: Bool = true) {
         var drop = raindrops[i]
         drop.velocity.x = wind.velocity.x
         let start = drop.position, end = start + drop.velocity * dt
@@ -103,17 +103,17 @@ extension SnowSimulation {
                 flood.add(area: area) // Props shed it; it reaches the flood behind them.
             }
             splash(at: hit.point)
-            raindrops[i] = newRaindrop(scattered: false)
+            recycleDrop(i, respawn: respawn)
             return
         }
         switch rainWallHit(from: start, to: end) {
         case .wall(let point, let bottom):
             addDrip(at: point, area: area, slideUntil: bottom)
-            raindrops[i] = newRaindrop(scattered: false)
+            recycleDrop(i, respawn: respawn)
             return
         case .hidden:
             flood.add(area: area)
-            raindrops[i] = newRaindrop(scattered: false)
+            recycleDrop(i, respawn: respawn)
             return
         case .none:
             break
@@ -123,13 +123,85 @@ extension SnowSimulation {
             flood.add(area: area)
             flood.impulse(at: end.x, velocity: Self.dropRipple)
             splash(at: SIMD2(end.x, surface))
-            raindrops[i] = newRaindrop(scattered: false)
+            recycleDrop(i, respawn: respawn)
             return
         }
         drop.position = end
         if drop.position.x < -8 { drop.position.x = size.x + 4 }
         if drop.position.x > size.x + 8 { drop.position.x = -4 }
         raindrops[i] = drop
+    }
+
+    private func recycleDrop(_ i: Int, respawn: Bool) {
+        if respawn { raindrops[i] = newRaindrop(scattered: false) } else { raindrops[i].depth = -1 }
+    }
+
+    // MARK: Transitions
+
+    /// 10 pt of melted snow makes 1 pt of water (user's choice).
+    public static let meltRatio: Float = 10
+    /// pt/s: the deepest snow (28 pt on the floor) is gone in 40 s.
+    static let meltRate: Float = 0.7
+    /// The flood and puddles are gone this long after the rain stops.
+    static let drainSeconds: Float = 20
+
+    func weatherDidChange() {
+        if weather == .snow { drainRate = max(0.5, flood.level / Self.drainSeconds) }
+        meshDirty = true
+    }
+
+    /// After the rain: drops in the air finish falling (their water is not counted), runoff and
+    /// splashes land, puddles dry and the flood drains over ~20 s.
+    func stepRainRemnants(dt: Float) {
+        if !raindrops.isEmpty {
+            updateFloodCap()
+            for i in raindrops.indices { advanceRaindrop(i, area: 0, dt: dt, respawn: false) }
+            raindrops.removeAll { $0.depth < 0 }
+        }
+        releaseRunoff()
+        stepDrips(dt: dt)
+        stepSplashes(dt: dt)
+        for drift in drifts where drift.puddle > 0 {
+            drift.puddle = max(0, drift.puddle - drift.puddleLimit / Self.drainSeconds * dt)
+            meshDirty = true
+        }
+        if flood.level > 0 {
+            flood.drain(rate: drainRate, dt: dt)
+            flood.step(dt: dt)
+            if flood.level <= 0 { flood.clear() }
+            meshDirty = true
+        }
+    }
+
+    /// Snow melts into water (10:1) while it rains, and snow under standing water (the flood, a
+    /// puddle) melts until the water is gone, so it only settles on dry ground.
+    func stepMelt(dt: Float) {
+        let raining = weather == .rain
+        let amount = Self.meltRate * dt
+        for drift in drifts {
+            let s = drift.surface
+            let isFloor = s.id == DesktopSceneBuilder.groundID
+            guard raining || (isFloor && flood.level > 0.01) || drift.puddle > 0.0001 else { continue }
+            let melted = drift.meltDown(by: amount)
+            guard melted > 0 else { continue }
+            meshDirty = true
+            let water = melted / Self.meltRatio
+            if isFloor || s.isElevated || !s.holdsWater {
+                flood.add(area: water)
+            } else if raining {
+                queueRunoff(drift.addWater(area: water, at: s.width / 2), from: drift)
+            }
+            // After the rain, snow melting on a drying puddle evaporates with it.
+        }
+        guard raining else { return }
+        // Loose and flung snow melts straight into the flood.
+        let loose = looseSnow.totalMass + clumps.reduce(0) { $0 + $1.mass } + snowReleases.reduce(0) { $0 + $1.mass }
+        guard loose > 0 else { return }
+        flood.add(area: loose / Self.meltRatio)
+        looseSnow.clear()
+        clumps.removeAll()
+        snowReleases.removeAll(keepingCapacity: true)
+        meshDirty = true
     }
 
     /// Without visible drops (Reduce Motion) the same flux fills tops and the flood directly.

@@ -25,7 +25,11 @@ public final class SnowSimulation {
     /// Snow flung by a fast glove stroke, in flight. Each carries real area (`mass`).
     public internal(set) var clumps: [SnowParticle] = []
     /// Snow or rain. Rain replaces flakes with drops, puddles and a rising flood.
-    public var weather: Weather = .snow
+    public var weather: Weather = .snow {
+        didSet { if weather != oldValue { weatherDidChange() } }
+    }
+    /// Flood drain rate (pt/s) after the rain stops, so it is gone in ~20 s.
+    var drainRate: Float = 0
     public internal(set) lazy var flood = FloodField(width: size.x)
     public internal(set) var raindrops: [Raindrop] = []
     public internal(set) var drips: [WaterDrip] = []
@@ -165,6 +169,10 @@ public final class SnowSimulation {
         snowReleases.removeAll(keepingCapacity: true)
         carriedContacts.removeAll(keepingCapacity: true)
         releaseScratch.removeAll(keepingCapacity: true)
+        flood.clear()
+        pendingRunoff.removeAll(keepingCapacity: true)
+        drips.removeAll(keepingCapacity: true)
+        splashes.removeAll(keepingCapacity: true)
         meshDirty = true
         resetPointer()
         if !batchingScene { rebuildMesh() }
@@ -236,11 +244,15 @@ public final class SnowSimulation {
             settleAge = 0
             meshDirty = true
         }
-        if weather == .snow {
-            let desired = reducedMotion ? 0 : min(budget.flakes,
-                Int(Float(budget.flakes) * min(1, snowfall.density / Snowfall.flurry.density) * max(0, min(1, particleScale))))
-            if flakes.count > desired { flakes.removeLast(flakes.count - desired) }
-            while flakes.count < desired { flakes.append(newFlake(scattered: true)) }
+        // In rain, flakes already in the air finish falling but are not replaced.
+        let snowing = weather == .snow
+        if snowing || !flakes.isEmpty {
+            if snowing {
+                let desired = reducedMotion ? 0 : min(budget.flakes,
+                    Int(Float(budget.flakes) * min(1, snowfall.density / Snowfall.flurry.density) * max(0, min(1, particleScale))))
+                if flakes.count > desired { flakes.removeLast(flakes.count - desired) }
+                while flakes.count < desired { flakes.append(newFlake(scattered: true)) }
+            }
             updateFlakeMassScale()
 
             let wind = sin(elapsed * 0.23) * 7 + sin(elapsed * 0.071) * 5
@@ -267,18 +279,20 @@ public final class SnowSimulation {
                     particle.velocity = resume
                     particle.freeVelocity = nil
                 }
-                if deposited || particle.position.y > size.y + 8 || particle.position.y < -40 {
-                    particle = newFlake(scattered: false)
+                // A flake reaching standing flood water melts into it instead of settling under it.
+                let meltsInFlood = !deposited && flood.level > 0.01
+                    && particle.position.y >= floodSurfaceY(at: particle.position.x)
+                if meltsInFlood { flood.add(area: particle.mass * flakeMassScale / Self.meltRatio) }
+                if meltsInFlood || deposited || particle.position.y > size.y + 8 || particle.position.y < -40 {
+                    if snowing { particle = newFlake(scattered: false) } else { particle.remainingLife = -1 }
                 }
                 if particle.position.x < -8 { particle.position.x = size.x + 4 }
                 if particle.position.x > size.x + 8 { particle.position.x = -4 }
                 flakes[i] = particle
             }
-        } else {
-            if !flakes.isEmpty { flakes.removeAll() }
-            stepRain(dt: dt)
+            if !snowing { flakes.removeAll { $0.remainingLife < 0 } }
         }
-        if weather == .snow { releaseRunoff() }
+        if snowing { stepRainRemnants(dt: dt) } else { stepRain(dt: dt) }
         stepClumps(dt: dt)
         let looseRevision = looseSnow.revision
         looseSnow.step(dt: dt, wind: self.wind.velocity) { [unowned self] from, to, mass in
@@ -287,6 +301,7 @@ public final class SnowSimulation {
         if tool == .shovel, let cursor {
             sweep(from: cursor, to: cursor, dt: dt)
         }
+        stepMelt(dt: dt)
         if looseRevision != looseSnow.revision { meshDirty = true; interactionDirty = true }
         if meshDirty && (geometryAge >= 0.1 || interactionDirty) { rebuildMesh() }
     }

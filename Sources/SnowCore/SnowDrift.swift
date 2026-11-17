@@ -373,5 +373,18 @@ public final class SnowDrift {
 
     func clear() {
         for i in heights.indices { heights[i] = 0 }
+        puddle = 0
+    }
+
+    /// Lowers every sample by up to `amount` pt and returns the melted area (pt²).
+    func meltDown(by amount: Float) -> Float {
+        guard amount > 0 else { return 0 }
+        var melted: Float = 0
+        for i in heights.indices where heights[i] > 0 {
+            let loss = min(heights[i], amount)
+            heights[i] -= loss
+            melted += loss
+        }
+        return melted * spacing
     }
 }

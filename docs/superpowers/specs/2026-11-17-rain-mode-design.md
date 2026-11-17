@@ -29,7 +29,8 @@ now has. Snow behaviour must be unaffected when the mode is Snow.
 
 ## Non-goals
 
-- 2D fluid flowing across the desktop between windows, pooling in gaps, or reflections/refraction.
+- 2D fluid flowing across the desktop between windows, or reflections/refraction (basins between
+  windows are in scope, see Containers).
 - Rain sound, thunder or lightning.
 - Water on Spotlight's temporary cap (Spotlight just gets wet flakes passing by).
 - Puddles on decorations/props (see Decorations below).
@@ -86,9 +87,11 @@ with the user; tests should pin behaviour (ranges, ordering, conservation), not 
 - Each drift surface (window, widget, Dock tray) gets a **single puddle depth** `d` (pt), drawn
   as a level water layer of thickness `d` along the visible top, following the rounded shoulders.
 - Max depth `d_max = 3 pt` (Dock tray 2 pt). Water above `d_max` **runs off**.
-- **Surface tension (user request, 2026-11-17)**: the puddle holds together, so once it overflows
-  the escaping water drags a whole sheet along: the puddle drops to 80 % of `d_max` in one go
-  (one larger runoff), and a glove stroke that touches a puddle carries the whole puddle off.
+- **Surface tension (user requests, 2026-11-17)**: once full, the water surface stays at the
+  overflow level; the excess gathers at the overflow point into a hanging drop that falls once it
+  holds ~12 pt². A glove stroke that touches a puddle carries the whole puddle off.
+- **Containers (user request, 2026-11-17)**: a top with a taller window right beside each visible end
+  is a basin. It fills like the flood up to the shorter wall's top and spills over that wall.
 - Runoff split: on a level top, equally to both exposed ends; on a tilted (Stage Manager) top,
   all to the lower end; an end covered by another window or facing a neighbour within 16 pt
   (the existing bridge rule) passes its share to the other end / neighbour.

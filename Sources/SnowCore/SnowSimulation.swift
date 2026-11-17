@@ -35,6 +35,8 @@ public final class SnowSimulation {
     var drainRate: Float = 0
     /// Measured raindrop landings per second (smoothed), so each drop carries flux / rate.
     var rainLandingRate: Float = 0
+    /// Real elapsed time of this frame (up to 0.2 s) for rates that must keep pace at low fps.
+    var frameClock: Float = 0
     var rainLandings = 0
     public internal(set) lazy var flood = FloodField(width: size.x)
     public internal(set) var raindrops: [Raindrop] = []
@@ -220,6 +222,7 @@ public final class SnowSimulation {
         applySupportTransfers()
         applySnowReleases()
         let dt = min(rawDT, 0.05) // Never catch up a backlog after sleep, stalls, or resizing.
+        frameClock = min(rawDT, 0.2)
         elapsed += dt
         geometryAge += dt
         settleAge += dt

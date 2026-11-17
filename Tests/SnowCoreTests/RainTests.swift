@@ -121,7 +121,7 @@ final class RainTests: XCTestCase {
         wet.step(dt: 1 / 30, cursor: nil)
         dry.step(dt: 1 / 30, cursor: nil)
         XCTAssertLessThanOrEqual(wet.drips.count, SnowSimulation.maximumDrips)
-        let dripWater = wet.drips.reduce(0) { $0 + $1.area }
+        let dripWater = wet.drips.reduce(0) { $0 + $1.area } + wet.pendingRunoff.reduce(0) { $0 + $1.area }
         XCTAssertEqual(floodArea(wet) - floodArea(dry) + dripWater, 5_000, accuracy: 50)
     }
 
@@ -132,6 +132,15 @@ final class RainTests: XCTestCase {
         run(still, seconds: 60)
         XCTAssertTrue(still.raindrops.isEmpty)
         XCTAssertEqual(still.flood.level, moving.flood.level, accuracy: moving.flood.level * 0.2)
+    }
+
+    func testReducedMotionFillsAtFullPaceAtFifteenFPS() {
+        // Reduce Motion renders at 15 fps; the ambient fill must follow real time, not the 0.05 s step cap.
+        let still = world()
+        still.reducedMotion = true
+        run(still, seconds: 60, dt: 1 / 15)
+        let expected = FloodField.fallbackCap / 300 * 60
+        XCTAssertEqual(still.flood.level, expected, accuracy: expected * 0.1)
     }
 
     func testWindSlantsDrops() {

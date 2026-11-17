@@ -217,7 +217,9 @@ extension SnowSimulation {
     }
 
     /// Without visible drops (Reduce Motion) the same flux fills tops and the flood directly.
-    private func rainAmbient(dt: Float) {
+    private func rainAmbient(dt stepDT: Float) {
+        // Reduce Motion runs at 15 fps; follow real time rather than the 0.05 s step cap.
+        let dt = max(stepDT, frameClock)
         let flux = rainFlux
         flood.add(area: flux * dt)
         for drift in drifts where holdsRain(drift.surface) {
@@ -303,17 +305,38 @@ extension SnowSimulation {
     }
 
     /// Queues water leaving `drift` at its ends; end runoff starts just outside the top.
-    func queueRunoff(_ parts: [(localX: Float, area: Float)], from drift: SnowDrift) {
+    func queueRunoff(_ parts: [(localX: Float, area: Float)], from drift: SnowDrift, depth: Int = 0) {
         let s = drift.surface
         for part in parts where part.area > 0 {
             if drift.isContainer {
-                // Over the wall: the water leaves from the wall's top, on the wall's side.
-                let outward: Float = part.localX <= s.width / 2 ? -2 : 2
-                pendingRunoff.append((SIMD2(s.x + part.localX + outward, s.y - drift.puddleLimit - 1), part.area))
+                spillOverWall(part, from: drift, depth: depth)
                 continue
             }
             let nudge: Float = part.localX <= 0.5 ? -1.5 : (part.localX >= s.width - 0.5 ? 1.5 : 0)
             pendingRunoff.append((SIMD2(s.x + part.localX + nudge, s.baseY(at: part.localX) - 1), part.area))
+        }
+    }
+
+    /// Water spilling over a basin's wall lands on that window's top (and follows its rules) or,
+    /// where the top is hidden, runs down the wall's far side — never back down inside the basin.
+    private func spillOverWall(_ part: (localX: Float, area: Float), from drift: SnowDrift, depth: Int) {
+        let s = drift.surface
+        let atStart = part.localX <= s.width / 2
+        let wallID = atStart ? drift.containerWallIDs.start : drift.containerWallIDs.end
+        let x = s.x + part.localX + (atStart ? -2 : 2)
+        if depth < 8, let wallID, let wallTop = drifts.first(where: { $0.surface.id == wallID }), wallTop !== drift,
+           wallTop.surface.holdsWater {
+            let local = max(0, min(wallTop.surface.width, x - wallTop.surface.x))
+            if wallTop.surface.isExposed(at: local) {
+                queueRunoff(wallTop.addWater(area: part.area, at: local), from: wallTop, depth: depth + 1)
+                return
+            }
+        }
+        if let wallID, let wall = bodies.first(where: { $0.id == wallID }) {
+            let outer = atStart ? Float(wall.bounds.minX) - 1 : Float(wall.bounds.maxX) + 1
+            pendingRunoff.append((SIMD2(outer, Float(wall.bounds.minY) - 1), part.area))
+        } else {
+            pendingRunoff.append((SIMD2(x, s.y - drift.puddleLimit - 1), part.area))
         }
     }
 
@@ -327,8 +350,9 @@ extension SnowSimulation {
                 drift.containerWalls = (nil, nil)
                 continue
             }
-            drift.containerWalls = (wallHeight(besideX: s.x + first - 1, topY: s.y),
-                                    wallHeight(besideX: s.x + last + 1, topY: s.y))
+            let start = wall(besideX: s.x + first - 1, topY: s.y), end = wall(besideX: s.x + last + 1, topY: s.y)
+            drift.containerWalls = (start?.rise, end?.rise)
+            drift.containerWallIDs = (start?.id, end?.id)
             let width = drift.exposedWidth
             if drift.puddle > drift.puddleLimit, width > 0 {
                 let excess = (drift.puddle - drift.puddleLimit) * width
@@ -338,31 +362,44 @@ extension SnowSimulation {
         }
     }
 
-    private func wallHeight(besideX x: Float, topY: Float) -> Float? {
+    private func wall(besideX x: Float, topY: Float) -> (rise: Float, id: UInt64)? {
         guard x > 0, x < size.x else { return nil }
-        var tallest: Float?
+        var tallest: (rise: Float, id: UInt64)?
         for body in bodies where !body.isElevated && body.contains(SIMD2(x, topY - 0.5)) {
             let rise = topY - Float(body.bounds.minY)
-            if rise > 0.5 { tallest = max(tallest ?? 0, rise) }
+            if rise > 0.5, rise > (tallest?.rise ?? 0) { tallest = (rise, body.id) }
         }
         return tallest
     }
 
     /// Turns queued runoff into drips (sliding down the wall below when there is one). Without
     /// motion, or past the drip budget, the water goes straight to the flood.
+    /// Most water one drip carries; a bigger release pours out as a stream over several frames.
+    static let maximumDripArea: Float = 150
+    static let dripsPerSourcePerFrame = 2
+
     func releaseRunoff() {
         guard !pendingRunoff.isEmpty else { return }
+        var waiting: [(position: SIMD2<Float>, area: Float)] = []
         for (position, area) in pendingRunoff {
             let behindWindow = bodyBuckets[bucket(at: max(0, min(size.x, position.x)))]
                 .contains { bodies[$0].contains(position) }
-            if reducedMotion || weather == .snow || behindWindow {
-                flood.add(area: area)
-            } else {
-                let wall = wallBelow(position)
-                addDrip(at: wall.map { SIMD2($0.x, position.y) } ?? position, area: area, slideUntil: wall?.bottom)
+            let wall = wallBelow(position)
+            var left = area
+            for _ in 0..<Self.dripsPerSourcePerFrame where left > 0.0001 {
+                let chunk = min(left, Self.maximumDripArea)
+                if reducedMotion || weather == .snow || behindWindow {
+                    flood.add(area: chunk)
+                } else if drips.count < Self.maximumDrips {
+                    addDrip(at: wall.map { SIMD2($0.x, position.y) } ?? position, area: chunk, slideUntil: wall?.bottom)
+                } else {
+                    break // Out of drips: it keeps pouring next frame.
+                }
+                left -= chunk
             }
+            if left > 0.0001 { waiting.append((position, left)) }
         }
-        pendingRunoff.removeAll(keepingCapacity: true)
+        pendingRunoff = waiting
     }
 
     private func wallBelow(_ p: SIMD2<Float>) -> (x: Float, bottom: Float)? {
@@ -527,7 +564,9 @@ extension SnowSimulation {
             let area = drift.removeWater(drift.puddleArea)
             guard area > 0 else { continue }
             if fast {
-                throwWater(area, from: SIMD2(max(s.x, min(s.x + s.width, end.x)), s.y - 2), direction: direction, speed: speed)
+                let thrown = min(area, 150)
+                throwWater(thrown, from: SIMD2(max(s.x, min(s.x + s.width, end.x)), s.y - 2), direction: direction, speed: speed)
+                if area > thrown { queueRunoff([(direction > 0 ? s.width : 0, area - thrown)], from: drift) }
             } else {
                 queueRunoff([(direction > 0 ? s.width : 0, area)], from: drift)
             }

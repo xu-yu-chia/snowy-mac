@@ -27,6 +27,40 @@ final class ContainerWaterTests: XCTestCase {
         XCTAssertEqual(hit?.point.y ?? 0, 460, accuracy: 0.5, "40 pt of water above the top at y 500")
     }
 
+    func testOverflowSpillsOntoTheWallsTopNotDownTheInside() {
+        // The right wall (body 3) has its own exposed top; overflow goes there, never into the basin.
+        let simulation = SnowSimulation(size: SIMD2(1200, 1000), budget: SimulationBudget(flakes: 0, debris: 96), seed: 5)
+        let base = Surface(id: 1, x: 400, y: 500, width: 400, visibleSpans: [Span(50, 350)])
+        let wallTop = Surface(id: 3, x: 750, y: 420, width: 250)
+        simulation.updateScene(surfaces: [floor, base, wallTop], bodies: walls)
+        simulation.clear()
+        simulation.weather = .rain
+        let drift = simulation.drifts.first { $0.surface.id == 1 }!
+        _ = drift.addWater(area: 300 * 80, at: 150)
+        for _ in 0..<5 { simulation.queueRunoff(drift.addWater(area: 50, at: 150), from: drift) }
+        for _ in 0..<120 {
+            simulation.step(dt: 1 / 60, cursor: nil)
+            XCTAssertFalse(simulation.drips.contains { $0.position.x > 445 && $0.position.x < 755 && $0.position.y > 425 },
+                           "No water runs down inside the basin")
+        }
+        XCTAssertGreaterThan(simulation.drifts.first { $0.surface.id == 3 }!.puddleArea, 0, "It landed on the wall's top")
+    }
+
+    func testLosingAWallPoursTheBasinOutWithoutAJump() {
+        let (simulation, _) = basin(depth: 80)
+        simulation.updateScene(surfaces: [floor, Surface(id: 1, x: 400, y: 500, width: 400, visibleSpans: [Span(50, 400)])],
+                               bodies: Array(walls.prefix(2)))
+        var last = simulation.flood.level
+        var biggest: Float = 0
+        for _ in 0..<(8 * 60) {
+            simulation.step(dt: 1 / 60, cursor: nil)
+            biggest = max(biggest, simulation.flood.level - last)
+            last = simulation.flood.level
+        }
+        XCTAssertLessThan(biggest, 1, "The basin pours out over time; the flood never jumps")
+        XCTAssertGreaterThan(simulation.flood.level, 5, "…and its water does reach the flood")
+    }
+
     func testRainRingsTheBasinSurface() {
         let (simulation, drift) = basin(flakes: 400)
         for _ in 0..<60 { simulation.step(dt: 1 / 30, cursor: nil) }

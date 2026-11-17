@@ -87,6 +87,8 @@ final class DesktopCoordinator {
         let lights: DesktopHangingLights
         var snapshot: DisplaySnapshot?
         var fullscreen = false
+        /// Fraction of the usable desktop behind ordinary windows.
+        var coverage: Float = 0
         var geometryReady = false
         var desktop: SceneDesktop {
             snapshot?.desktop ?? SceneDesktop(id: geometry.id, size: geometry.bounds.size, dock: nil, anchors: [])
@@ -405,7 +407,10 @@ final class DesktopCoordinator {
             let scale = min(display.nativeScale, min(CGFloat(policy.renderScale), pixelBudgetScale))
             // Full-display transparent Finder/widget containers can mark a desktop panel occluded.
             // Use explicit scene/lifecycle gates; that bounding-box signal is not reliable here.
-            display.renderer.apply(policy: policy, scale: scale, paused: !showSnow)
+            // A window zoomed to fill the screen (not full screen) hides almost all of the snow;
+            // keep the Dock strip and edges alive at a lower rate with fewer flakes.
+            let displayPolicy = display.coverage >= 0.97 ? policy.forMostlyCoveredDesktop() : policy
+            display.renderer.apply(policy: displayPolicy, scale: scale, paused: !showSnow)
             display.renderer.spotlightOverlay.apply(show: showSnow, scale: scale)
         }
         if desktopAvailable && (running || editorVisible || followsObjects) && !displays.isEmpty {
@@ -475,6 +480,7 @@ final class DesktopCoordinator {
                 display.renderer.spotlightOverlay.update(supports: snapshot.spotlightSupports,
                                                         displayBounds: display.geometry.bounds, primaryTop: self.primaryTop)
                 display.fullscreen = snapshot.fullscreen
+                display.coverage = snapshot.coverage
                 display.geometryReady = true
             }
             let newDesktops = self.editorDesktops

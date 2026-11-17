@@ -21,6 +21,8 @@ struct DisplaySnapshot: Sendable {
     let surfaces: [Surface]
     let bodies: [SolidBody]
     let fullscreen: Bool
+    /// Fraction of the usable desktop behind ordinary windows (0–1).
+    let coverage: Float
     let spotlightSupports: [SpotlightSnowSupport]
     let dockWindowID: UInt64?
     let desktop: SceneDesktop
@@ -322,6 +324,8 @@ final class WindowTracker {
                                        anchors: anchors)
             return DisplaySnapshot(id: display.id, surfaces: scene.surfaces, bodies: scene.bodies,
                                    fullscreen: DesktopSceneBuilder.isFullscreen(displayBounds: display.bounds, windows: records),
+                                   coverage: DesktopSceneBuilder.coveredFraction(displayBounds: display.bounds,
+                                       menuInset: display.menuInset, dockBottomInset: display.dockBottomInset, windows: records),
                                    spotlightSupports: spotlight, dockWindowID: scene.dockWindowID, desktop: desktop)
         }
     }

@@ -248,6 +248,32 @@ slope: tilts[record.id]?.top ?? 0))
         return ((eye - topNear) * scale, (eye - bottomNear) * scale)
     }
 
+    /// Fraction (0–1) of the usable desktop, below the menu bar and above the Dock reservation,
+    /// covered by ordinary application windows. Overlaps count once. Sampled on a fixed 96×54
+    /// grid, so the cost is bounded whatever the window count.
+    public static func coveredFraction(displayBounds display: CGRect, menuInset: Float, dockBottomInset: Float,
+                                       windows: [DesktopWindowRecord]) -> Float {
+        guard valid(display) else { return 0 }
+        let top = display.minY + CGFloat(max(0, menuInset))
+        let bottom = display.maxY - CGFloat(max(0, dockBottomInset))
+        guard bottom - top > 1 else { return 0 }
+        let usable = CGRect(x: display.minX, y: top, width: display.width, height: bottom - top)
+        let covers = windows.prefix(512).filter {
+            $0.role == .application && $0.layer == 0 && valid($0.bounds) && $0.bounds.intersects(usable)
+        }.map(\.bounds)
+        guard !covers.isEmpty else { return 0 }
+        let columns = 96, rows = 54
+        var covered = 0
+        for row in 0..<rows {
+            let y = usable.minY + (CGFloat(row) + 0.5) * usable.height / CGFloat(rows)
+            for column in 0..<columns {
+                let point = CGPoint(x: usable.minX + (CGFloat(column) + 0.5) * usable.width / CGFloat(columns), y: y)
+                if covers.contains(where: { $0.contains(point) }) { covered += 1 }
+            }
+        }
+        return Float(covered) / Float(columns * rows)
+    }
+
     public static func isFullscreen(displayBounds display: CGRect, windows: [DesktopWindowRecord]) -> Bool {
         guard let front = windows.prefix(512).first(where: {
             $0.role == .application && $0.layer == 0 && valid($0.bounds)

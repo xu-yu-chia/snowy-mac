@@ -34,6 +34,17 @@ public struct RenderPolicy: Equatable, Sendable {
             renderScale = 1
         }
     }
+
+    /// For a display whose desktop is almost entirely behind ordinary windows (a window zoomed to
+    /// fill the screen without entering full screen): only the Dock strip and edges still show
+    /// snow, so render at up to 20 fps (the low-power rate; 10 fps visibly stutters) with at most
+    /// half the flakes. Never raises a lower setting.
+    public func forMostlyCoveredDesktop() -> RenderPolicy {
+        var policy = self
+        policy.framesPerSecond = min(framesPerSecond, 20)
+        policy.particleScale = min(particleScale, 0.5)
+        return policy
+    }
 }
 
 public struct SimulationBudget: Sendable {

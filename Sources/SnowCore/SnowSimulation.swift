@@ -10,6 +10,9 @@ public final class SnowSimulation {
     public internal(set) var mesh: [SnowVertex] = []
     public internal(set) var elevatedMeshRanges: [Range<Int>] = []
     public internal(set) var meshRevision: UInt64 = 0
+    /// Puddles and the flood, rebuilt every frame while there is water (waves move each frame).
+    public internal(set) var waterMesh: [SnowVertex] = []
+    public internal(set) var waterRevision: UInt64 = 0
     public var snowfall: Snowfall = .steady
     public var melting: Melting = .off
     public var grainSize: GrainSize = .normal {
@@ -302,6 +305,7 @@ public final class SnowSimulation {
             sweep(from: cursor, to: cursor, dt: dt)
         }
         stepMelt(dt: dt)
+        if weather == .rain || !waterMesh.isEmpty || flood.level > 0 { rebuildWaterMesh() }
         if looseRevision != looseSnow.revision { meshDirty = true; interactionDirty = true }
         if meshDirty && (geometryAge >= 0.1 || interactionDirty) { rebuildMesh() }
     }

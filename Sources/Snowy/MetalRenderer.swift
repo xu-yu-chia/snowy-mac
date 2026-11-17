@@ -8,6 +8,8 @@ final class MetalContext {
     let queue: MTLCommandQueue
     let driftPipeline: MTLRenderPipelineState
     let flakePipeline: MTLRenderPipelineState
+    let waterPipeline: MTLRenderPipelineState
+    let streakPipeline: MTLRenderPipelineState
 
     init() throws {
         // Avoid waking a discrete GPU just to draw desktop decoration.
@@ -47,6 +49,8 @@ final class MetalContext {
         }
         driftPipeline = try pipeline(vertex: "driftVertex", fragment: "driftFragment")
         flakePipeline = try pipeline(vertex: "flakeVertex", fragment: "flakeFragment")
+        waterPipeline = try pipeline(vertex: "driftVertex", fragment: "waterFragment")
+        streakPipeline = try pipeline(vertex: "streakVertex", fragment: "streakFragment")
     }
 }
 
@@ -78,7 +82,10 @@ final class MetalRenderer: NSObject, MTKViewDelegate {
     private struct Slot {
         let particles: MTLBuffer
         let mesh: MTLBuffer
+        let streaks: MTLBuffer
+        let water: MTLBuffer
         var meshRevision: UInt64 = .max
+        var waterRevision: UInt64 = .max
     }
 
     init(context: MetalContext, size: CGSize, menuInset: Float, budget: SimulationBudget,
@@ -111,8 +118,16 @@ final class MetalRenderer: NSObject, MTKViewDelegate {
                 options: .cpuCacheModeWriteCombined),
                   let mesh = context.device.makeBuffer(
                     length: max(16, budget.maximumSnowVertices * MemoryLayout<SnowVertex>.stride),
+                    options: .cpuCacheModeWriteCombined),
+                  // Rain: drops (same budget as flakes), runoff drips and splash droplets.
+                  let streaks = context.device.makeBuffer(
+                    length: max(16, (budget.flakes + SnowSimulation.maximumDrips + SnowSimulation.maximumSplashes)
+                        * MemoryLayout<StreakInstance>.stride),
+                    options: .cpuCacheModeWriteCombined),
+                  let water = context.device.makeBuffer(
+                    length: max(16, simulation.maximumWaterVertices * MemoryLayout<SnowVertex>.stride),
                     options: .cpuCacheModeWriteCombined) else { throw RendererError.allocationFailed }
-            slots.append(Slot(particles: particles, mesh: mesh))
+            slots.append(Slot(particles: particles, mesh: mesh, streaks: streaks, water: water))
         }
     }
 
@@ -169,6 +184,28 @@ final class MetalRenderer: NSObject, MTKViewDelegate {
             }
             slots[slotIndex].meshRevision = simulation.meshRevision
         }
+        let streakList = simulation.streakInstances()
+        let streakCount = min(streakList.count, slot.streaks.length / MemoryLayout<StreakInstance>.stride)
+        if streakCount > 0 {
+            streakList.withUnsafeBytes { bytes in
+                slot.streaks.contents().copyMemory(from: bytes.baseAddress!,
+                                                   byteCount: streakCount * MemoryLayout<StreakInstance>.stride)
+            }
+            if slot.streaks.storageMode == .managed {
+                slot.streaks.didModifyRange(0..<(streakCount * MemoryLayout<StreakInstance>.stride))
+            }
+        }
+        let waterCount = min(simulation.waterMesh.count, slot.water.length / MemoryLayout<SnowVertex>.stride)
+        if waterCount > 0, slot.waterRevision != simulation.waterRevision {
+            simulation.waterMesh.withUnsafeBytes { bytes in
+                slot.water.contents().copyMemory(from: bytes.baseAddress!,
+                                                 byteCount: waterCount * MemoryLayout<SnowVertex>.stride)
+            }
+            if slot.water.storageMode == .managed {
+                slot.water.didModifyRange(0..<(waterCount * MemoryLayout<SnowVertex>.stride))
+            }
+            slots[slotIndex].waterRevision = simulation.waterRevision
+        }
         var uniforms = FrameUniforms(viewport: simulation.size, time: Float(now.truncatingRemainder(dividingBy: 3600)))
         encoder.setVertexBytes(&uniforms, length: MemoryLayout<FrameUniforms>.stride, index: 1)
         let top = min(Int(view.drawableSize.height) - 1,
@@ -192,10 +229,21 @@ final class MetalRenderer: NSObject, MTKViewDelegate {
                 encoder.drawPrimitives(type: .triangle, vertexStart: start, vertexCount: simulation.mesh.count - start)
             }
         }
+        if waterCount > 0 {
+            // Puddles and the flood: over the snow they rest on, behind every window.
+            encoder.setRenderPipelineState(context.waterPipeline)
+            encoder.setVertexBuffer(slot.water, offset: 0, index: 0)
+            encoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: waterCount)
+        }
         if count > 0 {
             encoder.setRenderPipelineState(context.flakePipeline)
             encoder.setVertexBuffer(slot.particles, offset: 0, index: 0)
             encoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 6, instanceCount: count)
+        }
+        if streakCount > 0 {
+            encoder.setRenderPipelineState(context.streakPipeline)
+            encoder.setVertexBuffer(slot.streaks, offset: 0, index: 0)
+            encoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 6, instanceCount: streakCount)
         }
         encoder.endEncoding()
         command.present(drawable)

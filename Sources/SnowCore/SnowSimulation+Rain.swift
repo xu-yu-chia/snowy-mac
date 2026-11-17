@@ -24,7 +24,7 @@ public struct WaterDrip: Sendable {
 /// down walls and fall into the flood. All water is conserved until the flood reaches its cap.
 extension SnowSimulation {
     public static let maximumDrips = 64
-    static let maximumSplashes = 160
+    public static let maximumSplashes = 160
     /// The flood reaches its cap in about this long at Steady on an open desktop.
     static let rainFillSeconds: Float = 300
     static let minimumDropSpeed: Float = 450

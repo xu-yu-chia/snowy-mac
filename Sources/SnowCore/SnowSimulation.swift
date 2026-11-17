@@ -24,6 +24,12 @@ public final class SnowSimulation {
     var flakeMassScale: Float = 0
     /// Snow flung by a fast glove stroke, in flight. Each carries real area (`mass`).
     public internal(set) var clumps: [SnowParticle] = []
+    /// Snow or rain. Rain replaces flakes with drops, puddles and a rising flood.
+    public var weather: Weather = .snow
+    public internal(set) lazy var flood = FloodField(width: size.x)
+    public internal(set) var raindrops: [Raindrop] = []
+    public internal(set) var drips: [WaterDrip] = []
+    public internal(set) var splashes: [WaterDrip] = []
     public static let maximumClumps = 96
 
     /// Glove strokes faster than this (pt/s) fling the snow they brush off.
@@ -217,7 +223,7 @@ public final class SnowSimulation {
         // Settled snow is built by the flakes that actually land (see `flakeMassScale`), so it only
         // grows where snow can fall. Without visible flakes (Reduce Motion) the ambient rate keeps
         // snow settling. Either way a Steady cap takes minutes, not ~40 s, to fill.
-        if flakes.isEmpty {
+        if weather == .snow, flakes.isEmpty {
             for drift in drifts { drift.accumulate(dt: dt, intensity: snowfall.density * Self.accumulationPace) }
         }
         if melting.rate > 0 {
@@ -230,43 +236,49 @@ public final class SnowSimulation {
             settleAge = 0
             meshDirty = true
         }
-        let desired = reducedMotion ? 0 : min(budget.flakes,
-            Int(Float(budget.flakes) * min(1, snowfall.density / Snowfall.flurry.density) * max(0, min(1, particleScale))))
-        if flakes.count > desired { flakes.removeLast(flakes.count - desired) }
-        while flakes.count < desired { flakes.append(newFlake(scattered: true)) }
-        updateFlakeMassScale()
+        if weather == .snow {
+            let desired = reducedMotion ? 0 : min(budget.flakes,
+                Int(Float(budget.flakes) * min(1, snowfall.density / Snowfall.flurry.density) * max(0, min(1, particleScale))))
+            if flakes.count > desired { flakes.removeLast(flakes.count - desired) }
+            while flakes.count < desired { flakes.append(newFlake(scattered: true)) }
+            updateFlakeMassScale()
 
-        let wind = sin(elapsed * 0.23) * 7 + sin(elapsed * 0.071) * 5
-        for i in flakes.indices {
-            var particle = flakes[i]
-            particle.phase += dt * 0.8
-            if particle.phase > .pi * 2 { particle.phase -= .pi * 2 }
-            let gust = SIMD2(wind + sin(particle.phase) * 9 + self.wind.velocity.x,
-                             self.wind.velocity.y * 0.35)
-            let wasSliding = particle.isSliding
-            let free = particle.velocity
-            particle.isSliding = false
-            particle.velocity += gust
-            let deposited = advanceParticle(&particle, dt: dt, recycleOnContact: true)
-            particle.velocity -= gust
-            if particle.isSliding {
-                // Remember the free-fall velocity from before the wall, not the cling state.
-                if !wasSliding { particle.freeVelocity = free }
-                // Keep the horizontal drift so the wind keeps pressing the flake to the wall
-                // next frame; only the vertical speed is the slower slide.
-                particle.velocity.x = (particle.freeVelocity ?? free).x
-            } else if wasSliding, let resume = particle.freeVelocity {
-                // Past the wall's end (or blown off it): fall and drift with the wind again.
-                particle.velocity = resume
-                particle.freeVelocity = nil
+            let wind = sin(elapsed * 0.23) * 7 + sin(elapsed * 0.071) * 5
+            for i in flakes.indices {
+                var particle = flakes[i]
+                particle.phase += dt * 0.8
+                if particle.phase > .pi * 2 { particle.phase -= .pi * 2 }
+                let gust = SIMD2(wind + sin(particle.phase) * 9 + self.wind.velocity.x,
+                                 self.wind.velocity.y * 0.35)
+                let wasSliding = particle.isSliding
+                let free = particle.velocity
+                particle.isSliding = false
+                particle.velocity += gust
+                let deposited = advanceParticle(&particle, dt: dt, recycleOnContact: true)
+                particle.velocity -= gust
+                if particle.isSliding {
+                    // Remember the free-fall velocity from before the wall, not the cling state.
+                    if !wasSliding { particle.freeVelocity = free }
+                    // Keep the horizontal drift so the wind keeps pressing the flake to the wall
+                    // next frame; only the vertical speed is the slower slide.
+                    particle.velocity.x = (particle.freeVelocity ?? free).x
+                } else if wasSliding, let resume = particle.freeVelocity {
+                    // Past the wall's end (or blown off it): fall and drift with the wind again.
+                    particle.velocity = resume
+                    particle.freeVelocity = nil
+                }
+                if deposited || particle.position.y > size.y + 8 || particle.position.y < -40 {
+                    particle = newFlake(scattered: false)
+                }
+                if particle.position.x < -8 { particle.position.x = size.x + 4 }
+                if particle.position.x > size.x + 8 { particle.position.x = -4 }
+                flakes[i] = particle
             }
-            if deposited || particle.position.y > size.y + 8 || particle.position.y < -40 {
-                particle = newFlake(scattered: false)
-            }
-            if particle.position.x < -8 { particle.position.x = size.x + 4 }
-            if particle.position.x > size.x + 8 { particle.position.x = -4 }
-            flakes[i] = particle
+        } else {
+            if !flakes.isEmpty { flakes.removeAll() }
+            stepRain(dt: dt)
         }
+        if weather == .snow { releaseRunoff() }
         stepClumps(dt: dt)
         let looseRevision = looseSnow.revision
         looseSnow.step(dt: dt, wind: self.wind.velocity) { [unowned self] from, to, mass in

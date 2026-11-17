@@ -242,9 +242,6 @@ extension SnowSimulation {
     /// Water does not ride a window: a top that moves, resizes or goes away lets its puddle fall
     /// from its old ends.
     func releasePuddle(of drift: SnowDrift) {
-        let surface = drift.surface
-        for part in drift.releasePuddle() {
-            pendingRunoff.append((SIMD2(surface.x + part.localX, surface.baseY(at: part.localX) - 1), part.area))
-        }
+        queueRunoff(drift.releasePuddle(), from: drift)
     }
 }

@@ -30,3 +30,11 @@ public struct ParticleInstance: Sendable {
         opacity = particle.opacity * min(1, particle.remainingLife * 2)
     }
 }
+
+/// One rain streak: a thin quad from `position − vector` to `position` (24 bytes, matches Snow.metal).
+public struct StreakInstance: Sendable {
+    public var position: SIMD2<Float>
+    public var vector: SIMD2<Float>
+    public var width: Float
+    public var opacity: Float
+}

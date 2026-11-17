@@ -30,11 +30,11 @@ extension SnowSimulation {
 
     /// With a crosswind, snow crosses the upwind edge as well as the top. The edge is chosen by
     /// its share of the incoming flux, so calm weather keeps every entry at the top.
-    func upwindEntry(radius: Float) -> SIMD2<Float>? {
+    func upwindEntry(radius: Float, fall meanFall: Float? = nil) -> SIMD2<Float>? {
         let crosswind = wind.velocity.x
         guard abs(crosswind) > 1, size.x > 1, size.y > 1 else { return nil }
         // Mean ambient fall speed: 20 + 43·E[depth] plus the vertical wind share used in `step`.
-        let fall = max(1, 41.5 + wind.velocity.y * 0.35)
+        let fall = meanFall ?? max(1, 41.5 + wind.velocity.y * 0.35)
         let sideFlux = size.y * abs(crosswind)
         guard random.unit() < sideFlux / (size.x * fall + sideFlux) else { return nil }
         // Inside the horizontal wrap margin, so the flake is not teleported to the far edge.

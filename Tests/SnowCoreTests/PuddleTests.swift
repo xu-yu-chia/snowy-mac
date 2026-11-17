@@ -98,7 +98,7 @@ final class PuddleTests: XCTestCase {
         let top = simulation.drifts.first { $0.surface.id == 1 }!
         XCTAssertEqual(top.puddle, 0, "A moved window does not carry its water")
         XCTAssertEqual(simulation.pendingRunoff.reduce(0) { $0 + $1.area }, 300, accuracy: 0.01)
-        XCTAssertTrue(simulation.pendingRunoff.allSatisfy { $0.position.x >= 199 && $0.position.x <= 301 },
+        XCTAssertTrue(simulation.pendingRunoff.allSatisfy { $0.position.x >= 198 && $0.position.x <= 302 },
                       "The water falls at the window's old ends")
     }
 

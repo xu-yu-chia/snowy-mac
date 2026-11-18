@@ -235,6 +235,16 @@ extension SnowSimulation {
             let effects = WindCorners.effects(for: drift.surface, cellCount: drift.heights.count,
                                               bodies: bodies, wind: wind.velocity)
             drift.applyCornerWind(effects)
+            // Where another window on the same plane stands on this top, snow fills at most up to
+            // that window's top. The floor keeps its snow continuous under the Dock tray.
+            guard drift.surface.id != DesktopSceneBuilder.groundID else { continue }
+            let others = bodies.filter { $0.id != drift.surface.id && $0.isElevated == drift.surface.isElevated }
+            drift.setRoomBelow(drift.heights.indices.map { i in
+                let local = Float(i) * drift.spacing
+                let base = drift.surface.baseY(at: local)
+                let probe = SIMD2(drift.surface.x + local, base - 1)
+                return others.filter { $0.contains(probe) }.map { base - $0.top(at: probe.x) }.min() ?? .infinity
+            })
         }
     }
 }

@@ -286,10 +286,37 @@ extension SnowSimulation {
     /// A cap end joins the snow in the slit beside it once that snow has filled up to the cap's
     /// top: the cap then keeps full depth to its edge and the two read as one drift.
     func refreshJoinedEnds() {
+        // A narrow slit walled on both sides fills up to the snow surface of the cap beside it.
+        var raises: [ObjectIdentifier: [(lower: Float, upper: Float, height: Float)]] = [:]
+        for drift in drifts where drift.surface.id != DesktopSceneBuilder.groundID && !drift.surface.isDock {
+            for atEnd in [false, true] {
+                guard let (target, span) = slitBeside(drift, atEnd: atEnd) else { continue }
+                let height = target.surface.y - drift.surface.y + drift.edgeCapacity(atEnd: atEnd)
+                raises[ObjectIdentifier(target), default: []].append((span.lower, span.upper, height))
+            }
+        }
+        for drift in drifts { drift.setRaisedLimits(raises[ObjectIdentifier(drift)] ?? []) }
         for drift in drifts where drift.surface.id != DesktopSceneBuilder.groundID && !drift.surface.isDock {
             drift.setJoinedEnds(start: slitSnowReachesTop(of: drift, atEnd: false),
                                 end: slitSnowReachesTop(of: drift, atEnd: true))
         }
+    }
+
+    /// The floor of a narrow slit (at most 48 pt of open sky, walled on both sides) right beside
+    /// one end of a higher cap, and that slit's open span in the floor's local coordinates.
+    private func slitBeside(_ source: SnowDrift, atEnd: Bool) -> (SnowDrift, Span)? {
+        let surface = source.surface
+        let probeX = surface.x + (atEnd ? surface.width + 3 : -3)
+        for target in drifts where target !== source && target.surface.id != DesktopSceneBuilder.groundID
+            && target.surface.y > surface.y + 1 && target.surface.y - surface.y <= 60 {
+            let local = probeX - target.surface.x
+            guard local >= 0, local <= target.surface.width,
+                  let span = target.surface.snowfallSpans.first(where: { $0.contains(local) }),
+                  span.upper - span.lower <= 48,
+                  span.lower > target.spacing, span.upper < target.surface.width - target.spacing else { continue }
+            return (target, span)
+        }
+        return nil
     }
 
     private func slitSnowReachesTop(of source: SnowDrift, atEnd: Bool) -> Bool {

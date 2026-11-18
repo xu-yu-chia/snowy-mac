@@ -20,6 +20,24 @@ public final class SnowDrift {
     private var taperWidth: Float = 13
     /// Ends whose shoulder joins level snow in the slit beside them (set by the simulation).
     private(set) var joinedEnds: (start: Bool, end: Bool) = (false, false)
+    /// A slit floor may fill above its own cap, up to the snow surface of the caps beside it.
+    private var raisedLimits: [Float] = []
+    /// Where another window's body stands on this top, snow may fill up to that window's top but
+    /// never rise above it (it would show as a second layer over that window's own snow).
+    /// `.infinity` means no window there.
+    private var roomBelow: [Float] = []
+
+    /// Exposed, with room for snow under any window standing on it.
+    func isOpen(_ i: Int) -> Bool {
+        surface.isExposed(at: Float(i) * spacing) && (roomBelow.isEmpty || roomBelow[i] > 0.5)
+    }
+
+    func setRoomBelow(_ room: [Float]) {
+        let next = room.contains(where: \.isFinite) ? room : []
+        guard next != roomBelow else { return }
+        roomBelow = next
+        rebuildLimits()
+    }
     /// Depth (pt) of the level rain puddle on this top.
     public internal(set) var puddle: Float = 0
     /// Overflow water gathering at each end before it falls as a drop.
@@ -92,13 +110,45 @@ public final class SnowDrift {
     func setJoinedEnds(start: Bool, end: Bool) {
         guard start != joinedEnds.start || end != joinedEnds.end else { return }
         joinedEnds = (start, end)
+        rebuildLimits()
+    }
+
+    /// Lets the samples in each local range hold snow up to `height` (a slit filling flush with
+    /// the caps beside it). An empty list restores the ordinary limits.
+    func setRaisedLimits(_ ranges: [(lower: Float, upper: Float, height: Float)]) {
+        var limits = ranges.isEmpty ? [] : Array(repeating: Float(0), count: heights.count)
+        for range in ranges {
+            for i in heights.indices {
+                let x = Float(i) * spacing
+                if x >= range.lower, x <= range.upper { limits[i] = max(limits[i], range.height) }
+            }
+        }
+        guard limits != raisedLimits else { return }
+        raisedLimits = limits
+        rebuildLimits()
+    }
+
+    /// Full capacity at the outermost sample of an end, before its shoulder taper.
+    func edgeCapacity(atEnd: Bool) -> Float {
+        let i = atEnd ? heights.count - 1 : 0
+        return fullCapacities[i]
+    }
+
+    private func rebuildLimits() {
         for i in heights.indices {
             let x = Float(i) * spacing
-            let untapered = (start && x < taperWidth) || (end && surface.width - x < taperWidth)
+            let untapered = (joinedEnds.start && x < taperWidth) || (joinedEnds.end && surface.width - x < taperWidth)
             let t = untapered ? 1 : taper[i]
-            capacities[i] = fullCapacities[i] * t
-            baseCapacities[i] = fullBaseCapacities[i] * t
-            baseDeposition[i] = fullDeposition[i] * t
+            let raised = raisedLimits.isEmpty ? 0 : raisedLimits[i]
+            capacities[i] = max(fullCapacities[i] * t, raised)
+            baseCapacities[i] = max(fullBaseCapacities[i] * t, raised)
+            baseDeposition[i] = raised > 0 ? max(fullDeposition[i], 0.3) : fullDeposition[i] * t
+            if !roomBelow.isEmpty, roomBelow[i].isFinite {
+                let room = max(0, roomBelow[i])
+                capacities[i] = min(capacities[i], room)
+                baseCapacities[i] = min(baseCapacities[i], room)
+                heights[i] = min(heights[i], room)
+            }
         }
         applyCornerWind(cornerWind)
     }
@@ -153,7 +203,7 @@ public final class SnowDrift {
         for distance in 0...max(0, min(24, reach)) {
             for side in 0..<((distance == 0 || direction != 0) ? 1 : 2) {
                 let i = center + (direction < 0 ? -distance : (side == 0 ? distance : -distance))
-                guard heights.indices.contains(i), surface.isExposed(at: Float(i) * spacing) else { continue }
+                guard heights.indices.contains(i), isOpen(i) else { continue }
                 if snowfall && (!surface.isSnowExposed(at: Float(i) * spacing) || cornerWind[i].clear) { continue }
                 let capacity = snowfall ? snowfallCapacities[i] : capacities[i]
                 let accepted = min(remaining, max(0, capacity - heights[i]) * spacing)
@@ -169,8 +219,7 @@ public final class SnowDrift {
         // Pairwise transfers preserve volume, including when adjacent samples are full.
         for i in heights.indices { scratch[i] = heights[i] }
         for i in 0..<(heights.count - 1) {
-            guard surface.isExposed(at: Float(i) * spacing),
-                  surface.isExposed(at: Float(i + 1) * spacing) else { continue }
+            guard isOpen(i), isOpen(i + 1) else { continue }
             // A tilted support's base drop drives snow toward its lower end until the cap is level.
             // ponytail: no angle of repose and no spill off the low end; full low-end samples just stop.
             let flux = (heights[i] - heights[i + 1] + surface.slope * spacing) * 0.12
@@ -212,10 +261,7 @@ public final class SnowDrift {
             // reaches neither (between covering windows) packs it away rather than letting it
             // stand as a tower; otherwise it creeps toward a reachable end, the nearer one
             // unless that end faces a neighbour across a slit.
-            let x = Float(i) * spacing
-            let span = surface.visibleSpans.first { $0.contains(x) }
-            let startOpen = span.map { $0.lower <= spacing } ?? false
-            let endOpen = span.map { $0.upper >= surface.width - spacing } ?? false
+            let (startOpen, endOpen) = reachableEnds(from: i)
             guard startOpen || endOpen else {
                 scratch[i] -= over * 0.05
                 continue
@@ -227,13 +273,34 @@ public final class SnowDrift {
             let j = towardStart ? i - 1 : i + 1
             // Only creep toward an end that can shed: under a covering window nothing moves,
             // so the overload cannot collect in the end sample while the edge is hidden.
-            guard heights.indices.contains(j), surface.isExposed(at: Float(j) * spacing) else { continue }
+            guard heights.indices.contains(j), isFree(j) else { continue }
             let excess = over * 0.3
             scratch[i] -= excess
             scratch[j] += excess
         }
         for i in heights.indices { heights[i] = max(0, scratch[i]) }
         if !isFloor { relieveOverloadSpikes() }
+        clampToRoom()
+    }
+
+    /// Exposed and clear of any window standing on this top: overload may travel through it.
+    private func isFree(_ i: Int) -> Bool {
+        surface.isExposed(at: Float(i) * spacing) && (roomBelow.isEmpty || !roomBelow[i].isFinite)
+    }
+
+    /// Which ends of this top the free stretch around sample `i` reaches.
+    private func reachableEnds(from i: Int) -> (start: Bool, end: Bool) {
+        guard isFree(i) else { return (false, false) }
+        var lower = i, upper = i
+        while lower > 0, isFree(lower - 1) { lower -= 1 }
+        while upper < heights.count - 1, isFree(upper + 1) { upper += 1 }
+        return (lower == 0, upper == heights.count - 1)
+    }
+
+    /// Snow pushed under a window standing on this top packs away above that window's top.
+    private func clampToRoom() {
+        guard !roomBelow.isEmpty else { return }
+        for i in heights.indices where roomBelow[i].isFinite { heights[i] = min(heights[i], max(0, roomBelow[i])) }
     }
 
     /// An overloaded sample standing more than 4 pt above its inner neighbour slumps inward, so
@@ -243,7 +310,7 @@ public final class SnowDrift {
         guard heights.count >= 2 else { return }
         for _ in 0..<2 {
             for i in heights.indices where heights[i] > capacities[i] + 0.001 {
-                for j in [i - 1, i + 1] where heights.indices.contains(j) && surface.isExposed(at: Float(j) * spacing) {
+                for j in [i - 1, i + 1] where heights.indices.contains(j) && isFree(j) {
                     let step = heights[i] - heights[j]
                     guard step > 4 else { continue }
                     let move = min(max(0, heights[i] - capacities[i]), (step - 4) * 0.5)
@@ -265,8 +332,9 @@ public final class SnowDrift {
     /// stretch exposed only between covering windows (the floor of a slit) has no such end:
     /// overload there could only pile up into a pillar.
     func canShedOverload(at localX: Float) -> Bool {
-        guard let span = surface.visibleSpans.first(where: { $0.contains(localX) }) else { return false }
-        return span.lower <= spacing || span.upper >= surface.width - spacing
+        let i = max(0, min(heights.count - 1, Int((localX / spacing).rounded())))
+        let ends = reachableEnds(from: i)
+        return ends.start || ends.end
     }
 
     var isOverloaded: Bool {

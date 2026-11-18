@@ -3,8 +3,8 @@ import XCTest
 @testable import SnowCore
 
 /// A slit between two windows whose bottom is a third window's top (exposed only inside the
-/// slit) holds one cap of snow on its floor; what lands beyond that packs away, so it never
-/// grows into a pillar or a plug of loose grains.
+/// slit) fills at most flush with the cap beside it; what lands beyond that packs away, so it
+/// never grows into a pillar or a plug of loose grains.
 final class SlitWellTests: XCTestCase {
     func testSnowInAWellDoesNotGrowIntoAPillar() {
         let floor = Surface(id: DesktopSceneBuilder.groundID, x: 0, y: 1080, width: 1920)
@@ -20,7 +20,8 @@ final class SlitWellTests: XCTestCase {
         simulation.snowfall = .flurry
         for _ in 0..<(90 * 30) { simulation.step(dt: 1 / 30, cursor: nil) }
         let bottom = simulation.drifts.first { $0.surface.id == 3 }!
-        XCTAssertLessThanOrEqual(bottom.heights.max() ?? 0, 20, "The well's floor holds at most a full cap")
+        XCTAssertLessThanOrEqual(bottom.heights.max() ?? 0, (124 - 88) + 18,
+                                 "The well fills at most flush with the cap beside it")
         let field = simulation.looseSnow
         let plug = field.active.filter { index in
             let p = field.position(of: index)

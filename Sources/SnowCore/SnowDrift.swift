@@ -11,6 +11,15 @@ public final class SnowDrift {
     private var baseDeposition: [Float]
     private var snowfallCapacities: [Float]
     private(set) var cornerWind: [CornerWindEffect]
+    /// Untapered limits and the shoulder taper per sample, so an end can drop its taper when it
+    /// joins the snow filling the slit beside it.
+    private var fullCapacities: [Float]
+    private var fullBaseCapacities: [Float]
+    private var fullDeposition: [Float]
+    private var taper: [Float]
+    private var taperWidth: Float = 13
+    /// Ends whose shoulder joins level snow in the slit beside them (set by the simulation).
+    private(set) var joinedEnds: (start: Bool, end: Bool) = (false, false)
     /// Depth (pt) of the level rain puddle on this top.
     public internal(set) var puddle: Float = 0
     /// Overflow water gathering at each end before it falls as a drop.
@@ -33,11 +42,16 @@ public final class SnowDrift {
         baseCapacities = heights
         baseDeposition = heights
         snowfallCapacities = heights
+        fullCapacities = heights
+        fullBaseCapacities = heights
+        fullDeposition = heights
+        taper = heights
         cornerWind = windEffects?.count == count ? windEffects! : Array(repeating: .neutral, count: count)
         let phase = Float(surface.id % 997) * 0.17
         // The shallow Dock ridge should reach its rounded shoulders before tapering.
         let taperWidth: Float = surface.isDock ? min(6, surface.width / 2)
             : (surface.width < 16 ? surface.width / 2 : 13)
+        self.taperWidth = taperWidth
         let limit: Float
         if surface.id == DesktopSceneBuilder.groundID { limit = 28 }
         else if surface.isDock { limit = 13 }
@@ -58,6 +72,10 @@ public final class SnowDrift {
             // glove or by landing snow undulates like fresh snow instead of forming a flat
             // plateau, on the Dock ridge as on any window.
             let relief: Float = 0.85 + (lobe - 0.68) * 0.45
+            self.taper[i] = taper
+            fullCapacities[i] = cap * relief
+            fullBaseCapacities[i] = cap * lobe
+            fullDeposition[i] = 0.18 + lobe * 0.17
             capacities[i] = cap * taper * relief
             baseCapacities[i] = cap * lobe * taper
             snowfallCapacities[i] = baseCapacities[i]
@@ -66,6 +84,22 @@ public final class SnowDrift {
             heights[i] = surface.isSnowExposed(at: x) && !cornerWind[i].clear ? min(capacities[i], 0.6 * taper) : 0
         }
         baseDeposition = deposition
+        applyCornerWind(cornerWind)
+    }
+
+    /// An end joined to level snow in the slit beside it keeps full depth to its edge, so the two
+    /// read as one continuous drift instead of a lower layer beside a rounded shoulder.
+    func setJoinedEnds(start: Bool, end: Bool) {
+        guard start != joinedEnds.start || end != joinedEnds.end else { return }
+        joinedEnds = (start, end)
+        for i in heights.indices {
+            let x = Float(i) * spacing
+            let untapered = (start && x < taperWidth) || (end && surface.width - x < taperWidth)
+            let t = untapered ? 1 : taper[i]
+            capacities[i] = fullCapacities[i] * t
+            baseCapacities[i] = fullBaseCapacities[i] * t
+            baseDeposition[i] = fullDeposition[i] * t
+        }
         applyCornerWind(cornerWind)
     }
 

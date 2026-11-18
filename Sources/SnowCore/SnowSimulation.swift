@@ -256,6 +256,7 @@ public final class SnowSimulation {
         if settleAge >= 0.1 {
             for drift in drifts { drift.settle() }
             shedOverloadedCaps()
+            refreshJoinedEnds()
             settleAge = 0
             meshDirty = true
         }

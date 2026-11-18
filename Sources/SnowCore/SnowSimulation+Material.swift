@@ -261,7 +261,10 @@ extension SnowSimulation {
             // Across a slit, snow only crosses while the neighbour's facing end has room for it.
             let startFull = start.map { $0.drift.spareArea(near: $0.localX, band: 16) < 1 } ?? false
             let endFull = end.map { $0.drift.spareArea(near: $0.localX, band: 16) < 1 } ?? false
-            for shed in drift.shedEnds(fraction: 0.05, band: 16, skipping: (startFull, endFull)) {
+            // An end joined to a filled slit only sheds snow above capacity; the steady trickle
+            // would carve the join back into a shoulder.
+            let skip = (startFull || (drift.joinedEnds.start && !overloaded), endFull || (drift.joinedEnds.end && !overloaded))
+            for shed in drift.shedEnds(fraction: 0.05, band: 16, skipping: skip) {
                 let atEnd = shed.localX > 0
                 if let target = atEnd ? end : start {
                     let rest = target.drift.depositMass(at: target.localX, mass: shed.mass, direction: atEnd ? 1 : -1)
@@ -279,6 +282,29 @@ extension SnowSimulation {
         applySnowReleases()
     }
 
+
+    /// A cap end joins the snow in the slit beside it once that snow has filled up to the cap's
+    /// top: the cap then keeps full depth to its edge and the two read as one drift.
+    func refreshJoinedEnds() {
+        for drift in drifts where drift.surface.id != DesktopSceneBuilder.groundID && !drift.surface.isDock {
+            drift.setJoinedEnds(start: slitSnowReachesTop(of: drift, atEnd: false),
+                                end: slitSnowReachesTop(of: drift, atEnd: true))
+        }
+    }
+
+    private func slitSnowReachesTop(of source: SnowDrift, atEnd: Bool) -> Bool {
+        let surface = source.surface
+        guard surface.isExposed(at: atEnd ? max(0, surface.width - source.spacing) : min(surface.width, source.spacing)) else {
+            return false
+        }
+        let probeX = surface.x + (atEnd ? surface.width + 3 : -3)
+        for target in drifts where target !== source && target.surface.y > surface.y + 1 {
+            let local = probeX - target.surface.x
+            guard local >= 0, local <= target.surface.width, target.surface.isExposed(at: local) else { continue }
+            if target.surface.baseY(at: local) - target.height(at: local) <= surface.y + 3 { return true }
+        }
+        return false
+    }
 
     /// A neighbouring top across a narrow slit from one end (two widgets, a widget beside a
     /// window): within 16 pt horizontally and 10 pt of the same height, with its facing end exposed.

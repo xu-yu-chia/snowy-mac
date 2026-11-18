@@ -286,37 +286,56 @@ extension SnowSimulation {
     /// A cap end joins the snow in the slit beside it once that snow has filled up to the cap's
     /// top: the cap then keeps full depth to its edge and the two read as one drift.
     func refreshJoinedEnds() {
-        // A narrow slit walled on both sides fills up to the snow surface of the cap beside it.
-        var raises: [ObjectIdentifier: [(lower: Float, upper: Float, height: Float)]] = [:]
-        for drift in drifts where drift.surface.id != DesktopSceneBuilder.groundID && !drift.surface.isDock {
-            for atEnd in [false, true] {
-                guard let (target, span) = slitBeside(drift, atEnd: atEnd) else { continue }
-                let height = target.surface.y - drift.surface.y + drift.edgeCapacity(atEnd: atEnd)
-                raises[ObjectIdentifier(target), default: []].append((span.lower, span.upper, height))
-            }
-        }
-        for drift in drifts { drift.setRaisedLimits(raises[ObjectIdentifier(drift)] ?? []) }
         for drift in drifts where drift.surface.id != DesktopSceneBuilder.groundID && !drift.surface.isDock {
             drift.setJoinedEnds(start: slitSnowReachesTop(of: drift, atEnd: false),
                                 end: slitSnowReachesTop(of: drift, atEnd: true))
         }
     }
 
-    /// The floor of a narrow slit (at most 48 pt of open sky, walled on both sides) right beside
-    /// one end of a higher cap, and that slit's open span in the floor's local coordinates.
-    private func slitBeside(_ source: SnowDrift, atEnd: Bool) -> (SnowDrift, Span)? {
-        let surface = source.surface
-        let probeX = surface.x + (atEnd ? surface.width + 3 : -3)
-        for target in drifts where target !== source && target.surface.id != DesktopSceneBuilder.groundID
-            && target.surface.y > surface.y + 1 && target.surface.y - surface.y <= 60 {
-            let local = probeX - target.surface.x
-            guard local >= 0, local <= target.surface.width,
-                  let span = target.surface.snowfallSpans.first(where: { $0.contains(local) }),
-                  span.upper - span.lower <= 48,
-                  span.lower > target.spacing, span.upper < target.surface.width - target.spacing else { continue }
-            return (target, span)
+    /// Finds each stretch of a top walled in by taller windows on both sides (a container). The
+    /// shorter wall is where it overflows.
+    func refreshBasins() {
+        for drift in drifts {
+            guard drift.surface.id != DesktopSceneBuilder.groundID, !drift.surface.isDock else {
+                drift.setBasins([])
+                continue
+            }
+            var found: [SnowDrift.Basin] = []
+            var i = 0
+            while i < drift.heights.count {
+                guard drift.isFree(i) else { i += 1; continue }
+                var upper = i
+                while upper + 1 < drift.heights.count, drift.isFree(upper + 1) { upper += 1 }
+                // Look for each wall at the first sample past the stretch (or just past the top).
+                let lowerX = drift.surface.x + (i > 0 ? Float(i - 1) * drift.spacing : -1)
+                let upperX = drift.surface.x + (upper < drift.heights.count - 1 ? Float(upper + 1) * drift.spacing
+                                                                                : drift.surface.width + 1)
+                if let left = wall(besideX: lowerX, topY: drift.surface.baseY(at: Float(i) * drift.spacing)),
+                   let right = wall(besideX: upperX, topY: drift.surface.baseY(at: Float(upper) * drift.spacing)),
+                   left.id != drift.surface.id, right.id != drift.surface.id {
+                    let spillAtEnd = right.rise <= left.rise
+                    found.append(.init(lower: i, upper: upper, rim: min(left.rise, right.rise),
+                                       spillAtEnd: spillAtEnd, wallID: spillAtEnd ? right.id : left.id))
+                }
+                i = upper + 1
+            }
+            drift.setBasins(found)
         }
-        return nil
+    }
+
+    /// Snow spilled over a basin's shorter wall lands on that window's top beside the basin;
+    /// what its top cannot take or shed packs away.
+    func landBasinSpills() {
+        for drift in drifts where !drift.spilled.isEmpty {
+            for spill in drift.spilled {
+                guard let wall = drifts.first(where: { $0.surface.id == spill.wallID }) else { continue }
+                let local = max(0, min(wall.surface.width, spill.x - wall.surface.x))
+                let rest = wall.depositMass(at: local, mass: spill.mass, direction: spill.atEnd ? 1 : -1)
+                if rest > 0.0001, wall.canShedOverload(at: local) { wall.addOverload(at: local, mass: rest) }
+            }
+            drift.spilled.removeAll()
+            meshDirty = true
+        }
     }
 
     private func slitSnowReachesTop(of source: SnowDrift, atEnd: Bool) -> Bool {

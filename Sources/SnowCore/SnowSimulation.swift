@@ -256,6 +256,7 @@ public final class SnowSimulation {
         if settleAge >= 0.1 {
             for drift in drifts { drift.settle() }
             shedOverloadedCaps()
+            landBasinSpills()
             refreshJoinedEnds()
             settleAge = 0
             meshDirty = true
@@ -318,6 +319,8 @@ public final class SnowSimulation {
             sweep(from: cursor, to: cursor, dt: dt)
         }
         stepMelt(dt: dt)
+        // Whatever added snow this frame, none rises above a window standing on its top.
+        for drift in drifts { drift.clampToRoom() }
         if weather == .rain || !waterMesh.isEmpty || flood.level > 0 { rebuildWaterMesh() }
         if looseRevision != looseSnow.revision { meshDirty = true; interactionDirty = true }
         if meshDirty && (geometryAge >= 0.1 || interactionDirty) { rebuildMesh() }

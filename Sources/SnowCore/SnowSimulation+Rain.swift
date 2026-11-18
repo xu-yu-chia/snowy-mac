@@ -362,7 +362,7 @@ extension SnowSimulation {
         }
     }
 
-    private func wall(besideX x: Float, topY: Float) -> (rise: Float, id: UInt64)? {
+    func wall(besideX x: Float, topY: Float) -> (rise: Float, id: UInt64)? {
         guard x > 0, x < size.x else { return nil }
         var tallest: (rise: Float, id: UInt64)?
         for body in bodies where !body.isElevated && body.contains(SIMD2(x, topY - 0.5)) {

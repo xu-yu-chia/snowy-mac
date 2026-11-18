@@ -20,8 +20,27 @@ public final class SnowDrift {
     private var taperWidth: Float = 13
     /// Ends whose shoulder joins level snow in the slit beside them (set by the simulation).
     private(set) var joinedEnds: (start: Bool, end: Bool) = (false, false)
-    /// A slit floor may fill above its own cap, up to the snow surface of the caps beside it.
-    private var raisedLimits: [Float] = []
+    /// A stretch of this top walled in by taller windows on both sides: snow fills it up to the
+    /// shorter wall, with an ordinary cap over that, and spills over the shorter wall.
+    struct Basin: Equatable {
+        var lower: Int
+        var upper: Int
+        var rim: Float
+        var spillAtEnd: Bool
+        var wallID: UInt64
+    }
+    private(set) var basins: [Basin] = []
+    /// Snow that spilled over a basin's shorter wall this settle, for the simulation to land on
+    /// that wall's top (display x of the basin edge, area).
+    var spilled: [(wallID: UInt64, atEnd: Bool, x: Float, mass: Float)] = []
+
+    func setBasins(_ next: [Basin]) {
+        guard next != basins else { return }
+        basins = next
+        rebuildLimits()
+    }
+
+    func basin(containing i: Int) -> Basin? { basins.first { i >= $0.lower && i <= $0.upper } }
     /// Where another window's body stands on this top, snow may fill up to that window's top but
     /// never rise above it (it would show as a second layer over that window's own snow).
     /// `.infinity` means no window there.
@@ -113,36 +132,25 @@ public final class SnowDrift {
         rebuildLimits()
     }
 
-    /// Lets the samples in each local range hold snow up to `height` (a slit filling flush with
-    /// the caps beside it). An empty list restores the ordinary limits.
-    func setRaisedLimits(_ ranges: [(lower: Float, upper: Float, height: Float)]) {
-        var limits = ranges.isEmpty ? [] : Array(repeating: Float(0), count: heights.count)
-        for range in ranges {
-            for i in heights.indices {
-                let x = Float(i) * spacing
-                if x >= range.lower, x <= range.upper { limits[i] = max(limits[i], range.height) }
-            }
-        }
-        guard limits != raisedLimits else { return }
-        raisedLimits = limits
-        rebuildLimits()
-    }
-
-    /// Full capacity at the outermost sample of an end, before its shoulder taper.
-    func edgeCapacity(atEnd: Bool) -> Float {
-        let i = atEnd ? heights.count - 1 : 0
-        return fullCapacities[i]
-    }
-
     private func rebuildLimits() {
         for i in heights.indices {
             let x = Float(i) * spacing
             let untapered = (joinedEnds.start && x < taperWidth) || (joinedEnds.end && surface.width - x < taperWidth)
             let t = untapered ? 1 : taper[i]
-            let raised = raisedLimits.isEmpty ? 0 : raisedLimits[i]
-            capacities[i] = max(fullCapacities[i] * t, raised)
-            baseCapacities[i] = max(fullBaseCapacities[i] * t, raised)
-            baseDeposition[i] = raised > 0 ? max(fullDeposition[i], 0.3) : fullDeposition[i] * t
+            if let basin = basin(containing: i) {
+                // Filled up to the shorter wall, then a cap that banks against the taller wall and
+                // falls away toward the shorter one, where it spills; no shoulders at either wall.
+                let span = Float(max(1, basin.upper - basin.lower))
+                let towardSpill = Float(basin.spillAtEnd ? i - basin.lower : basin.upper - i) / span
+                let bank = 1 - 0.25 * towardSpill
+                capacities[i] = basin.rim + fullCapacities[i] * bank
+                baseCapacities[i] = basin.rim + fullBaseCapacities[i] * bank
+                baseDeposition[i] = fullDeposition[i]
+            } else {
+                capacities[i] = fullCapacities[i] * t
+                baseCapacities[i] = fullBaseCapacities[i] * t
+                baseDeposition[i] = fullDeposition[i] * t
+            }
             if !roomBelow.isEmpty, roomBelow[i].isFinite {
                 let room = max(0, roomBelow[i])
                 capacities[i] = min(capacities[i], room)
@@ -261,6 +269,20 @@ public final class SnowDrift {
             // reaches neither (between covering windows) packs it away rather than letting it
             // stand as a tower; otherwise it creeps toward a reachable end, the nearer one
             // unless that end faces a neighbour across a slit.
+            if let basin = basin(containing: i) {
+                // Overload in a basin moves toward its shorter wall and spills over it.
+                let j = basin.spillAtEnd ? i + 1 : i - 1
+                let excess = over
+                scratch[i] -= excess
+                if j < basin.lower || j > basin.upper {
+                    let edge = Float(basin.spillAtEnd ? basin.upper : basin.lower) * spacing
+                        + (basin.spillAtEnd ? spacing * 0.5 : -spacing * 0.5)
+                    spilled.append((basin.wallID, basin.spillAtEnd, surface.x + edge, excess * spacing))
+                } else {
+                    scratch[j] += excess
+                }
+                continue
+            }
             let (startOpen, endOpen) = reachableEnds(from: i)
             guard startOpen || endOpen else {
                 scratch[i] -= over * 0.05
@@ -284,7 +306,7 @@ public final class SnowDrift {
     }
 
     /// Exposed and clear of any window standing on this top: overload may travel through it.
-    private func isFree(_ i: Int) -> Bool {
+    func isFree(_ i: Int) -> Bool {
         surface.isExposed(at: Float(i) * spacing) && (roomBelow.isEmpty || !roomBelow[i].isFinite)
     }
 
@@ -298,7 +320,7 @@ public final class SnowDrift {
     }
 
     /// Snow pushed under a window standing on this top packs away above that window's top.
-    private func clampToRoom() {
+    func clampToRoom() {
         guard !roomBelow.isEmpty else { return }
         for i in heights.indices where roomBelow[i].isFinite { heights[i] = min(heights[i], max(0, roomBelow[i])) }
     }
@@ -333,6 +355,7 @@ public final class SnowDrift {
     /// overload there could only pile up into a pillar.
     func canShedOverload(at localX: Float) -> Bool {
         let i = max(0, min(heights.count - 1, Int((localX / spacing).rounded())))
+        if basin(containing: i) != nil { return true }
         let ends = reachableEnds(from: i)
         return ends.start || ends.end
     }

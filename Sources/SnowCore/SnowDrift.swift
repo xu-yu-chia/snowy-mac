@@ -174,10 +174,21 @@ public final class SnowDrift {
                 }
                 continue
             }
-            // Toward the nearer end, unless that end faces a neighbour: then toward the open one.
-            var towardStart = Float(i) < middle
-            if towardStart && blockedEnds.start && !blockedEnds.end { towardStart = false }
-            if !towardStart && blockedEnds.end && !blockedEnds.start { towardStart = true }
+            // Overload can only shed at an end its exposed stretch reaches. A stretch that
+            // reaches neither (between covering windows) packs it away rather than letting it
+            // stand as a tower; otherwise it creeps toward a reachable end, the nearer one
+            // unless that end faces a neighbour across a slit.
+            let x = Float(i) * spacing
+            let span = surface.visibleSpans.first { $0.contains(x) }
+            let startOpen = span.map { $0.lower <= spacing } ?? false
+            let endOpen = span.map { $0.upper >= surface.width - spacing } ?? false
+            guard startOpen || endOpen else {
+                scratch[i] -= over * 0.05
+                continue
+            }
+            var towardStart = (Float(i) < middle && startOpen) || !endOpen
+            if towardStart && blockedEnds.start && !blockedEnds.end && endOpen { towardStart = false }
+            if !towardStart && blockedEnds.end && !blockedEnds.start && startOpen { towardStart = true }
             if blockedEnds.start && blockedEnds.end { continue }
             let j = towardStart ? i - 1 : i + 1
             // Only creep toward an end that can shed: under a covering window nothing moves,
@@ -208,6 +219,9 @@ public final class SnowDrift {
             }
         }
     }
+
+    /// Highest sample, refreshed once per frame; lets particle hit tests reach tall pushed piles.
+    var peak: Float = 0
 
     /// Which ends overload should not creep toward, because they face a neighbouring top
     /// across a narrow slit (set by the simulation before each settle).

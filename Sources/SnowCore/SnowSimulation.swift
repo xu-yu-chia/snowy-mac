@@ -226,6 +226,7 @@ public final class SnowSimulation {
         applySupportTransfers()
         applySnowReleases()
         let dt = min(rawDT, 0.05) // Never catch up a backlog after sleep, stalls, or resizing.
+        for drift in drifts { drift.peak = drift.heights.max() ?? 0 }
         frameClock = min(rawDT, 0.2)
         elapsed += dt
         geometryAge += dt

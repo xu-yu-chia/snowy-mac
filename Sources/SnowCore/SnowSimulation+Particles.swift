@@ -196,7 +196,7 @@ extension SnowSimulation {
                 let left = max(0, min(start.x, end.x) - drift.surface.x)
                 let right = min(drift.surface.width, max(start.x, end.x) - drift.surface.x)
                 guard right >= left,
-                      max(start.y, end.y) + radius >= drift.surface.y - 30,
+                      max(start.y, end.y) + radius >= drift.surface.y - max(30, drift.peak + 2),
                       min(start.y, end.y) + radius <= drift.surface.y + drift.surface.drop + 0.01 else { continue }
                 let begin = max(0, min(drift.heights.count - 2, Int(left / drift.spacing)))
                 let finish = max(begin, min(drift.heights.count - 2, Int(right / drift.spacing)))

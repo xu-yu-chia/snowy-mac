@@ -91,9 +91,16 @@ extension SnowSimulation {
             let level = water[c]
             guard c > 0, b + 1 < columns, let leftID = owner[c - 1], let rightID = owner[b + 1],
                   Float(b - c + 1) * step <= Self.maximumBasinWidth else { continue }
-            // Each wall must reach down to the floor beside it; a hanging window leaks underneath.
-            guard let leftWall = walls.first(where: { $0.id == leftID }), let rightWall = walls.first(where: { $0.id == rightID }),
-                  Float(leftWall.bounds.maxY) >= terrain[c] - 1, Float(rightWall.bounds.maxY) >= terrain[b] - 1 else { continue }
+            // Sealed only if every window shaping the hollow (its walls and any higher floor)
+            // reaches down to its deepest floor; otherwise snow leaks out sideways underneath,
+            // as from a slit between two widgets above a lower one.
+            let deepest = (c...b).map { terrain[$0] }.max() ?? level
+            let shaping = Set((c - 1...b + 1).compactMap { k -> UInt64? in
+                guard let id = owner[k], terrain[k] < deepest - 1 else { return nil }
+                return id
+            })
+            guard shaping.allSatisfy({ id in walls.first(where: { $0.id == id }).map { Float($0.bounds.maxY) >= deepest - 1 } ?? false })
+            else { continue }
             let towardRight = abs(terrain[b + 1] - level) <= abs(terrain[c - 1] - level)
             basins.append(Basin(level: level, wallID: towardRight ? rightID : leftID, outward: towardRight ? 1 : -1,
                                 outletX: towardRight ? Float(b + 1) * step : Float(c) * step))

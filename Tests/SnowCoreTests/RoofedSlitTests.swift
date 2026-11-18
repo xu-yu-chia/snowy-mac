@@ -53,8 +53,9 @@ final class RoofedSlitTests: XCTestCase {
     }
 
     /// Two small widgets side by side over a large one: snowfall reaches the large widget's top
-    /// only through the vertical slit between them, and must stay near that slit.
-    func testSnowFallingThroughAVerticalSlitStaysUnderTheSlit() {
+    /// only through the vertical slit between them. What lands there spills out to both sides
+    /// along the large widget's top (2026-11-19 request), as a thin layer, never a pile.
+    func testSnowFallingThroughAVerticalSlitSpillsOutAsAThinLayer() {
         let small = { (id: UInt64, x: CGFloat) in
             DesktopWindowRecord(id: id, bounds: CGRect(x: x, y: 38, width: 180, height: 180),
                                 layer: self.widgetLayer, role: .widget)
@@ -70,9 +71,8 @@ final class RoofedSlitTests: XCTestCase {
         let cap = simulation.drifts.first { $0.surface.id == 3 }!
         // The slit is centred at x = 188 on screen; measure snow more than 40 pt from it.
         let slitLocal = 188 - cap.surface.x
-        let far = cap.heights.indices.reduce(Float(0)) { sum, i in
-            abs(Float(i) * cap.spacing - slitLocal) > 40 ? sum + cap.heights[i] * cap.spacing : sum
-        }
-        XCTAssertLessThan(far, 100, "Snow from the slit spread far under the roofing widgets")
+        let far = cap.heights.indices.filter { abs(Float($0) * cap.spacing - slitLocal) > 40 }.map { cap.heights[$0] }
+        XCTAssertLessThan(far.max() ?? 0, 18, "Snow spreading under the roofing widgets stays within an ordinary cap")
+        XCTAssertTrue(simulation.basins.isEmpty, "The slit leaks sideways under the small widgets: no container")
     }
 }

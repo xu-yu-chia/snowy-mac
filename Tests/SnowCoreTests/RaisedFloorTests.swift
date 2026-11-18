@@ -97,6 +97,16 @@ final class RaisedFloorTests: XCTestCase {
         XCTAssertLessThan(floor.heights[index(floor, x: 200)], before - 2, "The glove pushes snow off the raised surface")
     }
 
+    func testASlitWhoseWallsStopAboveItsFloorLeaksSideways() {
+        // From the real desktop: the Calendar and Reminders widgets (bottoms at y 210) side by side
+        // above a large widget whose top is at y 234. The slit between them opens sideways under
+        // both: no container, the snow spreads out along the large widget's top.
+        let s = make([window(34, x: 16, y: 54, width: 164, height: 156, radius: 22),
+                      window(41, x: 196, y: 54, width: 164, height: 156, radius: 22),
+                      window(37, x: 16, y: 234, width: 344, height: 336, radius: 22)])
+        XCTAssertTrue(s.basins.isEmpty, "No basin: \(s.basins.map { ($0.level, $0.members.count) })")
+    }
+
     func testSnowFallsThroughANarrowSlitBetweenEqualTops() {
         let s = make([window(1, x: 16, y: 594, width: 164, height: 156, radius: 22),
                       window(2, x: 196, y: 594, width: 164, height: 156, radius: 22)], flakes: 300)

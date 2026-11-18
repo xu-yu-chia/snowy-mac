@@ -160,6 +160,7 @@ final class DesktopCoordinator {
         tool = SnowTool(rawValue: UserDefaults.standard.string(forKey: "cursorTool") ?? "") ?? .glove
         policy = Self.readPolicy()
         installObservers()
+        installDebugDump()
         configureDisplays()
     }
 
@@ -277,6 +278,32 @@ final class DesktopCoordinator {
     private func refreshPolicy() {
         policy = Self.readPolicy()
         updateState()
+    }
+
+    private var debugDumpSource: DispatchSourceSignal?
+
+    /// `kill -USR1 <pid>` writes every display's scene and settled snow as JSON, so a state seen
+    /// on the desktop can be rebuilt in a test.
+    private func installDebugDump() {
+        signal(SIGUSR1, SIG_IGN)
+        let source = DispatchSource.makeSignalSource(signal: SIGUSR1, queue: .main)
+        source.setEventHandler { [weak self] in MainActor.assumeIsolated { self?.writeDebugDump() } }
+        source.resume()
+        debugDumpSource = source
+    }
+
+    private func writeDebugDump() {
+        let payload: [[String: Any]] = displays.map { display in
+            let b = display.geometry.bounds
+            return ["display": display.geometry.id, "bounds": [b.minX, b.minY, b.width, b.height],
+                    "simulation": display.renderer.simulation.debugSnapshot()]
+        }
+        let hdd = URL(fileURLWithPath: "/Volumes/HDD/Xcode/snowy-debug", isDirectory: true)
+        let folder = FileManager.default.fileExists(atPath: hdd.path) ? hdd : FileManager.default.temporaryDirectory
+        let url = folder.appendingPathComponent("snowy-dump-\(Int(Date().timeIntervalSince1970)).json")
+        guard let data = try? JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys]) else { return }
+        try? data.write(to: url)
+        NSLog("Snowy debug dump: %@", url.path)
     }
 
     private func configureDisplays() {

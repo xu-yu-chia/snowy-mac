@@ -72,9 +72,8 @@ final class DesktopCoordinator {
             return (uuid, screen.localizedName, displaySelection.includes(uuid))
         }
     }
-    var noDisplaySelected: Bool {
-        !NSScreen.screens.isEmpty && !NSScreen.screens.contains { displaySelection.includes(Self.uuid(of: $0)) }
-    }
+    /// Set when displays are configured; read by the menu on every state change, so it is stored.
+    private(set) var noDisplaySelected = false
 
     /// The display's hardware UUID; stable across reboots and replugging, unlike its display ID.
     static func uuid(of screen: NSScreen) -> String? {
@@ -299,11 +298,9 @@ final class DesktopCoordinator {
         }
         primaryTop = primary.frame.maxY
         let screens = Array(NSScreen.screens.filter { displaySelection.includes(Self.uuid(of: $0)) }.prefix(6))
-        guard !screens.isEmpty else {
-            reconfiguring = false
-            updateState()
-            return
-        }
+        // With none selected the loop below is empty and the tail still runs, so the layout
+        // editor learns that no desktop is available.
+        noDisplaySelected = screens.isEmpty
         let totalArea = max(1, screens.reduce(CGFloat(0)) { $0 + $1.frame.width * $1.frame.height })
         let totalFlakes = min(900, max(80, Int(totalArea / 1_000_000 * 180)))
         do {

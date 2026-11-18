@@ -104,7 +104,9 @@ extension SnowSimulation {
                     // Another window above this spot roofs it only if it rises above the level;
                     // one below the level is just another floor of the same basin.
                     let level = basins[index].level
-                    guard floorY > level + 0.5,
+                    // Only the hollow's own floor: the topmost outline here, or a rounded corner
+                    // dipping just under it, never a window far below at the same x.
+                    guard floorY > level + 0.5, floorY <= terrain[column] + drift.surface.cornerRadius + 1,
                           !walls.contains(where: { $0.id != drift.surface.id && x >= Float($0.bounds.minX)
                               && x < Float($0.bounds.maxX) && $0.contour(at: x) < floorY - 0.5 && $0.contour(at: x) <= level + 0.5 })
                     else { continue }

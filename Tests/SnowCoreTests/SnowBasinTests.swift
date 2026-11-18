@@ -175,6 +175,27 @@ final class SnowBasinTests: XCTestCase {
         XCTAssertLessThanOrEqual(worst, 4, "A \(worst) pt notch at x \(at)")
     }
 
+    func testABasinFillsInAStrongWindThatClearsCornersElsewhere() {
+        // From the real desktop: a strong westward wind makes the walls' lee sides snow-free, but
+        // snow still collects in the hollow.
+        let s = make([window(1, x: 196, y: 54, width: 164, height: 156), window(2, x: 385, y: 122, width: 500),
+                      window(3, x: 327, y: 138, width: 700, visible: [Span(33, 700)], sky: [Span(33, 58)])])
+        s.wind = WindSettings(vector: SIMD2(-0.86, 0.5))
+        let floor = drift(s, 3)
+        for _ in 0..<(90 * 30) { s.step(dt: 1 / 30, cursor: nil) }
+        XCTAssertGreaterThan(floor.heights[index(floor, x: 372)], 4, "Snow collects in the hollow despite the wind")
+    }
+
+    func testAWindowFarBelowTheHollowIsNotPartOfIt() {
+        // A widget far below, at the same x as the hollow: its top must not be filled up to the
+        // hollow's level as a pillar.
+        let s = make([window(1, x: 196, y: 54, width: 164, height: 156), window(2, x: 385, y: 122, width: 500),
+                      window(3, x: 327, y: 138, width: 700, visible: [Span(33, 700)], sky: [Span(33, 58)]),
+                      window(4, x: 340, y: 585, width: 100, height: 100)])
+        let low = drift(s, 4)
+        XCTAssertTrue(low.heights.indices.allSatisfy { low.basin(at: $0) == nil }, "The low widget is no floor of the hollow above")
+    }
+
     func testSnowBehindAnotherWindowNeverRisesAboveIt() {
         let s = make([window(1, x: 196, y: 54, width: 164, height: 156), window(2, x: 385, y: 122, width: 500),
                       window(3, x: 327, y: 138, width: 700, visible: [Span(33, 700)], sky: [Span(33, 58)])])

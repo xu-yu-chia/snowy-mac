@@ -146,6 +146,12 @@ public final class SnowDrift {
         guard effects.count == heights.count else { return }
         cornerWind = effects
         for i in heights.indices {
+            // A basin collects snow whatever the wind: its lee side is a hollow snow drifts into.
+            if basin(at: i) != nil {
+                snowfallCapacities[i] = capacities[i]
+                deposition[i] = baseDeposition[i]
+                continue
+            }
             // Wind changes incoming snowfall, never the physical space available to pushed snow.
             snowfallCapacities[i] = effects[i].clear ? 0 : min(capacities[i], baseCapacities[i] * effects[i].capacityScale)
             deposition[i] = baseDeposition[i] * effects[i].depositionScale
@@ -187,13 +193,13 @@ public final class SnowDrift {
         let coordinate = localX / spacing
         let center = max(0, min(heights.count - 1, Int(direction > 0 ? ceil(coordinate)
             : (direction < 0 ? floor(coordinate) : coordinate.rounded()))))
-        if snowfall && (!surface.isSnowExposed(at: localX) || cornerWind[center].clear) { return mass }
+        if snowfall && (!surface.isSnowExposed(at: localX) || (cornerWind[center].clear && basin(at: center) == nil)) { return mass }
         var remaining = mass
         for distance in 0...max(0, min(24, reach)) {
             for side in 0..<((distance == 0 || direction != 0) ? 1 : 2) {
                 let i = center + (direction < 0 ? -distance : (side == 0 ? distance : -distance))
                 guard heights.indices.contains(i), isOpen(i) else { continue }
-                if snowfall && (!surface.isSnowExposed(at: Float(i) * spacing) || cornerWind[i].clear) { continue }
+                if snowfall && (!surface.isSnowExposed(at: Float(i) * spacing) || (cornerWind[i].clear && basin(at: i) == nil)) { continue }
                 let capacity = snowfall ? snowfallCapacities[i] : capacities[i]
                 let accepted = min(remaining, max(0, capacity - heights[i]) * spacing)
                 heights[i] += accepted / spacing

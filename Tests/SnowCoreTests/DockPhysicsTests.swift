@@ -62,6 +62,23 @@ final class DockPhysicsTests: XCTestCase {
         XCTAssertEqual(drift.height(at: 0), 0)
     }
 
+    func testDockRidgeUndulatesLikeAWindowCap() {
+        // A Dock ridge filled to its physical limit (landing and pushed snow, hours of snowfall)
+        // keeps broad lobes like a window cap, not a flat plateau.
+        let simulation = SnowSimulation(size: SIMD2(1000, 800), budget: SimulationBudget(flakes: 0))
+        simulation.updateSurfaces([Surface(id: 1, x: 200, y: 730, width: 600, isDock: true)])
+        let drift = simulation.drifts[0]
+        for i in drift.heights.indices { _ = drift.depositMass(at: Float(i) * drift.spacing, mass: 1_000, reach: 0) }
+        for _ in 0..<600 { drift.settle() }
+        let interior = drift.heights.indices.filter {
+            let x = Float($0) * drift.spacing
+            return x > 40 && x < 560
+        }.map { drift.heights[$0] }
+        let high = interior.max() ?? 0, low = interior.min() ?? 0
+        XCTAssertLessThanOrEqual(high, 13)
+        XCTAssertGreaterThan(high - low, high * 0.1, "The ridge rises and dips along the Dock")
+    }
+
     func testBottomDockHoverGeometryPreservesItsPileAndMovesItsSnowSurface() throws {
         let initial = scene(bounds: CGRect(x: 200, y: 720, width: 600, height: 70))
         let simulation = SnowSimulation(size: SIMD2(1000, 800), budget: SimulationBudget(flakes: 0))

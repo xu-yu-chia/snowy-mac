@@ -140,8 +140,11 @@ extension SnowSimulation {
             }
             // The outlet wall's first non-basin sample trades with the member nearest the outlet.
             let basin = basins[b]
+            // The member nearest the outlet is the basin's open edge, with or without a snow top
+            // on the outlet window to trade with.
+            basins[b].edgeMember = basin.members.indices.min { abs(basin.members[$0].x - basin.outletX) < abs(basin.members[$1].x - basin.outletX) }
             if let wall = drifts.first(where: { $0.surface.id == basin.wallID }),
-               let edge = basin.members.indices.min(by: { abs(basin.members[$0].x - basin.outletX) < abs(basin.members[$1].x - basin.outletX) }) {
+               let edge = basins[b].edgeMember {
                 var index = max(0, min(wall.heights.count - 1, Int(((basin.outletX - wall.surface.x) / wall.spacing).rounded())))
                 while wall.heights.indices.contains(index), wall.basin(at: index) != nil { index += basin.outward > 0 ? 1 : -1 }
                 if wall.heights.indices.contains(index), abs(wall.surface.x + Float(index) * wall.spacing - basin.members[edge].x) < 3 * wall.spacing + 1 {
@@ -178,11 +181,15 @@ extension SnowSimulation {
         let share = min(0.5, Self.basinFlowPerSecond * interval)
         for b in basins.indices where !basins[b].members.isEmpty {
             let members = basins[b].members
-            for m in members {
-                let limit = m.drift.capacity(at: m.index)
-                if m.drift.heights[m.index] > limit {
-                    basins[b].pending += (m.drift.heights[m.index] - limit) * m.drift.spacing
-                    m.drift.heights[m.index] = limit
+            // A full basin is an ordinary top: snow above its limit stays on it as overload,
+            // slumps (below) and leaves only over its one open edge, the outlet, a little each
+            // settle, as overload creeps off any top's edge.
+            if let edge = basins[b].edgeMember {
+                let m = members[edge]
+                let over = m.drift.heights[m.index] - m.drift.capacity(at: m.index)
+                if over > 0.0001 {
+                    m.drift.heights[m.index] -= over * 0.3
+                    basins[b].pending += over * 0.3 * m.drift.spacing
                 }
             }
             // Snow flows into the hollow below the outlet level (a dug hole, an unfilled floor);
@@ -203,7 +210,13 @@ extension SnowSimulation {
                 let filling = fillRoom(to, t) > 0.01 && to.basin(at: t) != nil
                 let rate = filling ? share : 0.12
                 let room = filling ? fillRoom(to, t) : max(0, to.capacity(at: t) - to.heights[t])
-                let area = min(abs(difference) * 0.5 * rate * width, from.heights[f] * from.spacing, room * to.spacing)
+                var area = min(abs(difference) * 0.5 * rate * width, from.heights[f] * from.spacing, room * to.spacing)
+                // A step steeper than the angle of repose slumps right away, also across a seam
+                // between windows and onto or off the outlet's top.
+                let repose = SnowDrift.reposeSlope * width
+                if abs(difference) > repose {
+                    area = max(area, min(from.heights[f] * from.spacing, (abs(difference) - repose) * 0.5 * width))
+                }
                 guard area > 0 else { return }
                 from.heights[f] -= area / from.spacing
                 to.heights[t] += area / to.spacing

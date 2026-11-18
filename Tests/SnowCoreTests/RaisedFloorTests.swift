@@ -72,19 +72,24 @@ final class RaisedFloorTests: XCTestCase {
         XCTAssertEqual(top(floor, x: 160), far, accuracy: 4, "Snow far from the hole is not flattened")
     }
 
-    func testOverflowFromFarAwayDoesNotBuildARidge() {
+    func testSnowPiledOnAFullBasinBehavesLikeOnAFlatTop() {
+        // Full, the basin is a flat top: fed snow piles up on it (it is not capped at "full"),
+        // slumps no steeper than the angle of repose, and leaves over the outlet edge.
         let s = hollow()
         fill(s)
         let floor = drift(s, 2), outlet = drift(s, 3)
         let before = outlet.heights.reduce(0, +)
-        var peak: Float = 0
+        var steepest: Float = 0
         for _ in 0..<(30 * 30) {
             floor.addOverload(at: 160 - 150, mass: 6)
             s.step(dt: 1 / 30, cursor: nil)
-            for x in stride(from: Float(156), through: 244, by: 4) { peak = max(peak, 120 - top(floor, x: x)) }
         }
-        XCTAssertLessThanOrEqual(peak, 18 + 4, "No ridge on the way to the outlet")
-        XCTAssertGreaterThan(outlet.heights.reduce(0, +) - before, 20, "The overflow reached the outlet wall's top")
+        for x in stride(from: Float(156), through: 240, by: 4) {
+            steepest = max(steepest, abs(top(floor, x: x + 4) - top(floor, x: x)) / 4)
+        }
+        XCTAssertGreaterThan(120 - top(floor, x: 160), 18 + 2, "Snow can pile above a full basin, as on any top")
+        XCTAssertLessThanOrEqual(steepest, 1.1, "It slumps to about the angle of repose (steeper only right under the pour)")
+        XCTAssertGreaterThan(outlet.heights.reduce(0, +) - before, 20, "And spills over the outlet edge")
     }
 
     func testTheGloveReachesARaisedSurface() {

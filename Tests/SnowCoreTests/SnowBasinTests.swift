@@ -117,17 +117,16 @@ final class SnowBasinTests: XCTestCase {
 
     func testOverflowWithoutAWallTopFallsAsLooseSnowAndNothingIsLost() {
         // Spotify's body is there but it has no snow top of its own (past the surface budget).
-        let s = make([window(1, x: 196, y: 54, width: 164, height: 156).0, window(3, x: 327, y: 138, width: 700, visible: [Span(33, 700)], sky: [Span(33, 58)]).0],
-                     [window(1, x: 196, y: 54, width: 164, height: 156).1, window(2, x: 385, y: 122, width: 500).1,
-                      window(3, x: 327, y: 138, width: 700, visible: [Span(33, 700)], sky: [Span(33, 58)]).1])
-        s.snowfall = .light
-        let floor = drift(s, 3)
+        func scene() -> SnowSimulation {
+            make([window(1, x: 196, y: 54, width: 164, height: 156).0, window(3, x: 327, y: 138, width: 700, visible: [Span(33, 700)], sky: [Span(33, 58)]).0],
+                 [window(1, x: 196, y: 54, width: 164, height: 156).1, window(2, x: 385, y: 122, width: 500).1,
+                  window(3, x: 327, y: 138, width: 700, visible: [Span(33, 700)], sky: [Span(33, 58)]).1])
+        }
+        let s = scene(), control = scene()
         XCTAssertNotNil(basin(s, 3, x: 372))
-        let before = total(s)
-        floor.addOverload(at: 45, mass: 3_000)
-        s.step(dt: 1 / 30, cursor: nil)
-        for _ in 0..<10 { s.step(dt: 1 / 30, cursor: nil) }
-        XCTAssertEqual(total(s) - before, 3_000, accuracy: 3_000 * 0.02, "Overflow becomes loose snow, not nothing")
+        drift(s, 3).addOverload(at: 45, mass: 3_000)
+        for _ in 0..<(5 * 30) { s.step(dt: 1 / 30, cursor: nil); control.step(dt: 1 / 30, cursor: nil) }
+        XCTAssertEqual(total(s) - total(control), 3_000, accuracy: 3_000 * 0.02, "Overflow becomes loose snow, not nothing")
         XCTAssertGreaterThan(s.looseSnow.totalMass + s.pendingTransferMass, 100)
     }
 

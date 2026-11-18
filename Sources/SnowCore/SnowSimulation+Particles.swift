@@ -178,7 +178,7 @@ extension SnowSimulation {
                 let drift = drifts[index]
                 if allowEmbedded, end.y >= start.y {
                     let local = start.x - drift.surface.x
-                    if local >= 0, local <= drift.surface.width, drift.surface.isExposed(at: local) {
+                    if local >= 0, local <= drift.surface.width, drift.surface.isExposed(at: local), drift.isLandable(at: local) {
                         let base = drift.surface.baseY(at: local)
                         let top = base - drift.height(at: local)
                         // A neighbour's landing can raise the cap through this cell before
@@ -213,7 +213,7 @@ extension SnowSimulation {
                     let point = start + delta * time
                     let localX = point.x - drift.surface.x
                     guard localX >= x0 - 0.001, localX <= x0 + drift.spacing + 0.001,
-                          drift.surface.isExposed(at: localX) else { continue }
+                          drift.surface.isExposed(at: localX), drift.isLandable(at: localX) else { continue }
                     nearest = ParticleHit(time: time, position: point, normal: SIMD2(0, -1), drift: index)
                 }
             }

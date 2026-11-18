@@ -47,6 +47,14 @@ public final class SnowDrift {
     /// `.infinity` means no window there.
     private var roomBelow: [Float] = []
 
+    /// Whether falling snow can land here: not inside another window's body standing on this top
+    /// (snow there lies under that window; what falls lands on the window instead), unless the
+    /// spot floors a basin.
+    func isLandable(at localX: Float) -> Bool {
+        let i = max(0, min(heights.count - 1, Int((localX / spacing).rounded())))
+        return roomBelow.isEmpty || !roomBelow[i].isFinite || basin(at: i) != nil
+    }
+
     /// Exposed, with room for snow under any window standing on it.
     func isOpen(_ i: Int) -> Bool {
         surface.isExposed(at: Float(i) * spacing) && (roomBelow.isEmpty || roomBelow[i] > 0.5)
@@ -337,18 +345,26 @@ public final class SnowDrift {
     /// capacity are untouched, so ordinary piles keep their shape.
     private func relieveOverloadSpikes() {
         guard heights.count >= 2 else { return }
-        for _ in 0..<2 {
-            for i in heights.indices where heights[i] > capacities[i] + 0.001 && basin(at: i) == nil {
-                for j in [i - 1, i + 1] where heights.indices.contains(j) && isFree(j) && basin(at: j) == nil {
-                    let step = heights[i] - heights[j]
-                    guard step > 4 else { continue }
-                    let move = min(max(0, heights[i] - capacities[i]), (step - 4) * 0.5)
+        // Overload slumps to the angle of repose (about 35°), by snow surface, in both directions,
+        // also onto and off a filled basin's top (which is an ordinary top once full).
+        let repose = Self.reposeSlope * spacing
+        for _ in 0..<3 {
+            for i in heights.indices where heights[i] > capacities[i] + 0.001 {
+                for j in [i - 1, i + 1] where heights.indices.contains(j) && isFree(j) {
+                    let topI = surface.baseY(at: Float(i) * spacing) - heights[i]
+                    let topJ = surface.baseY(at: Float(j) * spacing) - heights[j]
+                    let step = topJ - topI
+                    guard step > repose else { continue }
+                    let move = min(max(0, heights[i] - capacities[i]), (step - repose) * 0.5)
                     heights[i] -= move
                     heights[j] += move
                 }
             }
         }
     }
+
+    /// tan(35°): the steepest a pile of loose snow stands.
+    static let reposeSlope: Float = 0.7
 
     /// Highest sample, refreshed once per frame; lets particle hit tests reach tall pushed piles.
     var peak: Float = 0
@@ -389,7 +405,8 @@ public final class SnowDrift {
         var placed: Float = 0
         for (offset, weight) in [(0, Float(0.4)), (-1, 0.2), (1, 0.2), (-2, 0.1), (2, 0.1)] {
             let i = center + offset
-            guard heights.indices.contains(i) else { continue }
+            // Never into a spot under another window's body: the rest stays at the center.
+            guard heights.indices.contains(i), isLandable(at: Float(i) * spacing) || offset == 0 else { continue }
             heights[i] += mass * weight / spacing
             placed += weight
         }

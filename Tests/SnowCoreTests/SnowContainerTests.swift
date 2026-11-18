@@ -2,53 +2,91 @@ import Foundation
 import XCTest
 @testable import SnowCore
 
-/// A stretch of a top walled in by taller windows on both sides is a container: snow fills it up
-/// to the shorter wall with an ordinary undulating cap over that, and what does not fit spills
-/// over the shorter wall onto that window's top, never over the taller one.
+/// A hollow between taller windows is a container, even when several windows form it: snow fills
+/// it up to the shorter wall with an ordinary cap over that, and what does not fit spills over the
+/// shorter wall onto that window's top, never over the taller one.
 final class SnowContainerTests: XCTestCase {
-    private func world() -> SnowSimulation {
-        // A widget (top 54) on the left, Spotify (top 122) on the right, the terminal's top (138)
-        // as the container floor, exposed only in the 22 pt between them.
-        let floor = Surface(id: DesktopSceneBuilder.groundID, x: 0, y: 800, width: 1200)
-        let widget = Surface(id: 1, x: 196, y: 54, width: 164)
-        let spotify = Surface(id: 2, x: 385, y: 122, width: 500)
-        let terminal = Surface(id: 3, x: 327, y: 138, width: 700, visibleSpans: [Span(33, 700)], snowfallSpans: [Span(33, 58)])
-        let simulation = SnowSimulation(size: SIMD2(1200, 800), budget: SimulationBudget(flakes: 0, debris: 96), seed: 4)
-        simulation.updateScene(surfaces: [floor, widget, spotify, terminal],
-                               bodies: [SolidBody(id: 1, bounds: CGRect(x: 196, y: 54, width: 164, height: 156)),
-                                        SolidBody(id: 2, bounds: CGRect(x: 385, y: 122, width: 500, height: 500)),
-                                        SolidBody(id: 3, bounds: CGRect(x: 327, y: 138, width: 700, height: 500))])
+    private let floor = Surface(id: DesktopSceneBuilder.groundID, x: 0, y: 800, width: 1600)
+
+    private func make(_ surfaces: [Surface], _ bodies: [SolidBody]) -> SnowSimulation {
+        let simulation = SnowSimulation(size: SIMD2(1600, 800), budget: SimulationBudget(flakes: 0, debris: 96), seed: 4)
+        simulation.updateScene(surfaces: [floor] + surfaces, bodies: bodies)
         simulation.clear()
+        simulation.step(dt: 1 / 30, cursor: nil)
         return simulation
     }
 
-    private func area(_ drift: SnowDrift) -> Float { drift.heights.reduce(0, +) * drift.spacing }
+    /// From a real desktop: the Reminders widget (top 54) and LINE (top 85) are the walls; the
+    /// terminal's top (136) and Spotify's top (122) together form the floor between them.
+    private func multiWindow() -> SnowSimulation {
+        make([Surface(id: 41, x: 196, y: 54, width: 164),
+              Surface(id: 398, x: 321, y: 136, width: 1178, visibleSpans: [Span(39, 87), Span(889, 1178)],
+                      snowfallSpans: [Span(39, 64), Span(1170, 1178)]),
+              Surface(id: 11627, x: 385, y: 122, width: 1106, visibleSpans: [Span(0, 49), Span(799, 1106)],
+                      snowfallSpans: [Span(0, 23), Span(825, 1106)]),
+              Surface(id: 8328, x: 408, y: 85, width: 802)],
+             [SolidBody(id: 41, bounds: CGRect(x: 196, y: 54, width: 164, height: 156)),
+              SolidBody(id: 398, bounds: CGRect(x: 321, y: 136, width: 1178, height: 535)),
+              SolidBody(id: 11627, bounds: CGRect(x: 385, y: 122, width: 1106, height: 600)),
+              SolidBody(id: 8328, bounds: CGRect(x: 408, y: 85, width: 802, height: 700))])
+    }
 
-    func testOverflowSpillsOntoTheShorterWallOnly() {
-        let simulation = world(), control = world()
-        let container = simulation.drifts.first { $0.surface.id == 3 }!
-        let widget = simulation.drifts.first { $0.surface.id == 1 }!
-        let spotify = simulation.drifts.first { $0.surface.id == 2 }!
-        let calmSpotify = control.drifts.first { $0.surface.id == 2 }!, calmWidget = control.drifts.first { $0.surface.id == 1 }!
-        XCTAssertEqual(container.basins.count, 1)
-        XCTAssertEqual(container.basins.first?.rim ?? 0, 16, accuracy: 0.5, "Filled up to the shorter wall (Spotify)")
-        for _ in 0..<(60 * 30) {
-            container.addOverload(at: 45, mass: 4)
+    private func drift(_ simulation: SnowSimulation, _ id: UInt64) -> SnowDrift { simulation.drifts.first { $0.surface.id == id }! }
+    private func area(_ drift: SnowDrift) -> Float { drift.heights.reduce(0, +) * drift.spacing }
+    private func sample(_ drift: SnowDrift, x: Float) -> Int { Int(((x - drift.surface.x) / drift.spacing).rounded()) }
+
+    func testSeveralWindowsFormOneContainerFilledToTheShorterWall() {
+        let simulation = multiWindow()
+        let terminal = drift(simulation, 398), spotify = drift(simulation, 11627)
+        let low = terminal.container(at: sample(terminal, x: 372))
+        let high = spotify.container(at: sample(spotify, x: 396))
+        XCTAssertEqual(low?.depth ?? 0, 136 - 85, accuracy: 1, "The terminal's part fills up to LINE's top")
+        XCTAssertEqual(high?.depth ?? 0, 122 - 85, accuracy: 1, "Spotify's part fills up to LINE's top too")
+        XCTAssertEqual(low?.wallID, 8328, "It overflows over LINE, the shorter wall")
+        XCTAssertEqual(high?.wallID, 8328)
+        XCTAssertNil(drift(simulation, 8328).container(at: 20), "LINE's own top is not in the hollow")
+    }
+
+    func testTheFilledContainerIsOneSurfaceAndSpillsOverTheShorterWall() {
+        let simulation = multiWindow(), control = multiWindow()
+        let terminal = drift(simulation, 398), spotify = drift(simulation, 11627)
+        for _ in 0..<(90 * 30) {
+            terminal.addOverload(at: 372 - 321, mass: 3)
+            spotify.addOverload(at: 396 - 385, mass: 3)
             simulation.step(dt: 1 / 30, cursor: nil)
             control.step(dt: 1 / 30, cursor: nil)
         }
-        XCTAssertGreaterThan(area(spotify) - area(calmSpotify), 500, "The overflow landed on Spotify's top")
-        XCTAssertEqual(area(widget), area(calmWidget), accuracy: 1, "Nothing climbs over the taller wall")
-        XCTAssertLessThanOrEqual(container.heights.max() ?? 0, 16 + 18 + 8, "No tower over the container")
+        func meanTop(_ d: SnowDrift) -> Float {
+            let inside = d.heights.indices.filter { d.container(at: $0) != nil }
+            return inside.map { d.surface.baseY(at: Float($0) * d.spacing) - d.heights[$0] }.reduce(0, +) / Float(max(1, inside.count))
+        }
+        XCTAssertLessThan(meanTop(terminal), 86, "The terminal's part is filled past LINE's top")
+        XCTAssertEqual(meanTop(terminal), meanTop(spotify), accuracy: 6, "One snow surface across both floors")
+        let junction = terminal.heights.indices.filter { let x = terminal.surface.x + Float($0) * terminal.spacing; return x > 380 && x < 385 }
+        XCTAssertTrue(junction.allSatisfy { terminal.container(at: $0) != nil }, "No dip where the two floors meet")
+        XCTAssertGreaterThan(area(drift(simulation, 8328)) - area(drift(control, 8328)), 300, "The overflow lands on LINE")
+        XCTAssertEqual(area(drift(simulation, 41)), area(drift(control, 41)), accuracy: 1, "Nothing climbs the taller wall")
+        XCTAssertLessThanOrEqual(terminal.heights.max() ?? 0, 136 - 85 + 18 + 8, "No tower over the container")
     }
 
-    func testAFilledContainerUndulatesInsteadOfAFlatLine() {
-        let simulation = world()
-        let container = simulation.drifts.first { $0.surface.id == 3 }!
-        for i in container.heights.indices { _ = container.depositMass(at: Float(i) * container.spacing, mass: 1_000, reach: 0) }
-        for _ in 0..<(30 * 30) { simulation.step(dt: 1 / 30, cursor: nil) }
-        let inside = container.heights.indices.filter { container.basin(containing: $0) != nil }.map { container.heights[$0] }
-        XCTAssertGreaterThan(inside.min() ?? 0, 16, "Filled past the rim")
-        XCTAssertGreaterThan((inside.max() ?? 0) - (inside.min() ?? 0), 2, "The snow banks against the taller wall, not a straight line")
+    func testASingleSlitFillsToItsShorterWall() {
+        let simulation = make([Surface(id: 1, x: 196, y: 54, width: 164), Surface(id: 2, x: 385, y: 122, width: 500),
+                               Surface(id: 3, x: 327, y: 138, width: 700, visibleSpans: [Span(33, 700)], snowfallSpans: [Span(33, 58)])],
+                              [SolidBody(id: 1, bounds: CGRect(x: 196, y: 54, width: 164, height: 156)),
+                               SolidBody(id: 2, bounds: CGRect(x: 385, y: 122, width: 500, height: 500)),
+                               SolidBody(id: 3, bounds: CGRect(x: 327, y: 138, width: 700, height: 500))])
+        let floor = drift(simulation, 3)
+        XCTAssertEqual(floor.container(at: sample(floor, x: 372))?.depth ?? 0, 16, accuracy: 1)
+        XCTAssertNil(drift(simulation, 2).container(at: 100), "Spotify's open top is not a container")
+    }
+
+    func testAWideGapBetweenTallWindowsIsNotAContainer() {
+        let simulation = make([Surface(id: 1, x: 100, y: 100, width: 100), Surface(id: 2, x: 500, y: 100, width: 100),
+                               Surface(id: 3, x: 0, y: 300, width: 800)],
+                              [SolidBody(id: 1, bounds: CGRect(x: 100, y: 100, width: 100, height: 600)),
+                               SolidBody(id: 2, bounds: CGRect(x: 500, y: 100, width: 100, height: 600)),
+                               SolidBody(id: 3, bounds: CGRect(x: 0, y: 300, width: 800, height: 400))])
+        let low = drift(simulation, 3)
+        XCTAssertNil(low.container(at: sample(low, x: 350)), "300 pt apart: snow does not fill the whole gap")
     }
 }

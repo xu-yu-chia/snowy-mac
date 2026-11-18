@@ -292,38 +292,72 @@ extension SnowSimulation {
         }
     }
 
-    /// Finds each stretch of a top walled in by taller windows on both sides (a container). The
-    /// shorter wall is where it overflows.
-    func refreshBasins() {
+    /// How far a wall can be from a spot and still hold snow in there: only narrow hollows
+    /// fill, never a wide stretch between two distant tall windows.
+    static let containerReach: Float = 64
+
+    /// Finds containers across the whole desktop: the topmost window edge at each x forms a
+    /// terrain, and a spot of it with a higher wall within `containerReach` on both sides lies in
+    /// a hollow (possibly formed by several windows). Snow there fills up to the shorter of the
+    /// two walls and spills over it.
+    func refreshSnowContainers() {
+        let step: Float = 2
+        let columns = max(1, Int((size.x / step).rounded(.up)))
+        // Topmost edge (smallest y) and its window at each column; the floor where none.
+        var terrain = [Float](repeating: size.y, count: columns)
+        var owner = [UInt64?](repeating: nil, count: columns)
+        for body in bodies where !body.isElevated && body.id != DesktopSceneBuilder.dockID {
+            let first = max(0, Int(Float(body.bounds.minX) / step)), last = min(columns - 1, Int(Float(body.bounds.maxX) / step))
+            guard first <= last else { continue }
+            for c in first...last {
+                let top = body.top(at: (Float(c) + 0.5) * step)
+                if top < terrain[c] { terrain[c] = top; owner[c] = body.id }
+            }
+        }
+        let reach = Int(Self.containerReach / step)
         for drift in drifts {
-            guard drift.surface.id != DesktopSceneBuilder.groundID, !drift.surface.isDock else {
-                drift.setBasins([])
+            guard drift.surface.id != DesktopSceneBuilder.groundID, !drift.surface.isDock, !drift.surface.isElevated else {
+                drift.setContainerFill([])
                 continue
             }
-            var found: [SnowDrift.Basin] = []
-            var i = 0
-            while i < drift.heights.count {
-                guard drift.isFree(i) else { i += 1; continue }
-                var upper = i
-                while upper + 1 < drift.heights.count, drift.isFree(upper + 1) { upper += 1 }
-                // Look for each wall at the first sample past the stretch (or just past the top).
-                let lowerX = drift.surface.x + (i > 0 ? Float(i - 1) * drift.spacing : -1)
-                let upperX = drift.surface.x + (upper < drift.heights.count - 1 ? Float(upper + 1) * drift.spacing
-                                                                                : drift.surface.width + 1)
-                if let left = wall(besideX: lowerX, topY: drift.surface.baseY(at: Float(i) * drift.spacing)),
-                   let right = wall(besideX: upperX, topY: drift.surface.baseY(at: Float(upper) * drift.spacing)),
-                   left.id != drift.surface.id, right.id != drift.surface.id {
-                    let spillAtEnd = right.rise <= left.rise
-                    found.append(.init(lower: i, upper: upper, rim: min(left.rise, right.rise),
-                                       spillAtEnd: spillAtEnd, wallID: spillAtEnd ? right.id : left.id))
+            drift.setContainerFill(drift.heights.indices.map { i -> SnowDrift.ContainerFill? in
+                guard drift.isFree(i) else { return nil }
+                let x = drift.surface.x + Float(i) * drift.spacing
+                let c = max(0, min(columns - 1, Int(x / step)))
+                let floorY = drift.surface.baseY(at: Float(i) * drift.spacing)
+                // Only the topmost edge at this exact x is a floor (columns are coarser than samples).
+                guard !bodies.contains(where: { body in
+                    body.id != drift.surface.id && !body.isElevated && body.id != DesktopSceneBuilder.dockID
+                        && x >= Float(body.bounds.minX) && x < Float(body.bounds.maxX) && body.top(at: x) < floorY - 0.5
+                }) else { return nil }
+                var left: (y: Float, c: Int)?, right: (y: Float, c: Int)?
+                // Walls are other windows; this top's own flat edge is not a wall to its rounded ends.
+                let own = drift.surface.id
+                for k in max(0, c - reach)..<c where owner[k] != own && terrain[k] < floorY - 0.5 && terrain[k] < (left?.y ?? .infinity) {
+                    left = (terrain[k], k)
                 }
-                i = upper + 1
-            }
-            drift.setBasins(found)
+                if c + 1 < columns {
+                    for k in (c + 1)...min(columns - 1, c + reach)
+                    where owner[k] != own && terrain[k] < floorY - 0.5 && terrain[k] < (right?.y ?? .infinity) {
+                        right = (terrain[k], k)
+                    }
+                }
+                guard let l = left, let r = right, let leftID = owner[l.c], let rightID = owner[r.c] else { return nil }
+                // The shorter wall (lower top, larger y) is where the hollow overflows.
+                let towardEnd = r.y >= l.y
+                let wall = towardEnd ? r : l
+                guard let id = towardEnd ? rightID as UInt64? : leftID as UInt64? else { return nil }
+                // The wall's near edge: the first column past this spot that rises to it.
+                var edge = wall.c
+                if towardEnd { while edge > c + 1, terrain[edge - 1] <= wall.y + 0.5 { edge -= 1 } }
+                else { while edge < c - 1, terrain[edge + 1] <= wall.y + 0.5 { edge += 1 } }
+                let wallX = (Float(edge) + (towardEnd ? 0.5 : 0.5)) * step
+                return .init(depth: floorY - wall.y, wallID: id, towardEnd: towardEnd, wallX: wallX)
+            })
         }
     }
 
-    /// Snow spilled over a basin's shorter wall lands on that window's top beside the basin;
+    /// Snow spilled over a container's shorter wall lands on that window's top beside it;
     /// what its top cannot take or shed packs away.
     func landBasinSpills() {
         for drift in drifts where !drift.spilled.isEmpty {

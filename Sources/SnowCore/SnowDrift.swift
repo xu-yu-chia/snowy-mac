@@ -20,27 +20,29 @@ public final class SnowDrift {
     private var taperWidth: Float = 13
     /// Ends whose shoulder joins level snow in the slit beside them (set by the simulation).
     private(set) var joinedEnds: (start: Bool, end: Bool) = (false, false)
-    /// A stretch of this top walled in by taller windows on both sides: snow fills it up to the
-    /// shorter wall, with an ordinary cap over that, and spills over the shorter wall.
-    struct Basin: Equatable {
-        var lower: Int
-        var upper: Int
-        var rim: Float
-        var spillAtEnd: Bool
+    /// Where this top is the floor of a container (a hollow between taller windows, possibly
+    /// formed by several windows), snow fills it `depth` pt up to the shorter wall, with an
+    /// ordinary cap over that, and spills over that wall onto its top.
+    struct ContainerFill: Equatable {
+        var depth: Float
         var wallID: UInt64
+        var towardEnd: Bool
+        /// Display x where spilled snow lands on the shorter wall's top.
+        var wallX: Float
     }
-    private(set) var basins: [Basin] = []
-    /// Snow that spilled over a basin's shorter wall this settle, for the simulation to land on
-    /// that wall's top (display x of the basin edge, area).
+    private(set) var containerFill: [ContainerFill?] = []
+    /// Snow that spilled over a container's shorter wall this settle, for the simulation to land
+    /// on that wall's top.
     var spilled: [(wallID: UInt64, atEnd: Bool, x: Float, mass: Float)] = []
 
-    func setBasins(_ next: [Basin]) {
-        guard next != basins else { return }
-        basins = next
+    func setContainerFill(_ next: [ContainerFill?]) {
+        let fill = next.contains { $0 != nil } ? next : []
+        guard fill != containerFill else { return }
+        containerFill = fill
         rebuildLimits()
     }
 
-    func basin(containing i: Int) -> Basin? { basins.first { i >= $0.lower && i <= $0.upper } }
+    func container(at i: Int) -> ContainerFill? { containerFill.isEmpty ? nil : containerFill[i] }
     /// Where another window's body stands on this top, snow may fill up to that window's top but
     /// never rise above it (it would show as a second layer over that window's own snow).
     /// `.infinity` means no window there.
@@ -137,14 +139,10 @@ public final class SnowDrift {
             let x = Float(i) * spacing
             let untapered = (joinedEnds.start && x < taperWidth) || (joinedEnds.end && surface.width - x < taperWidth)
             let t = untapered ? 1 : taper[i]
-            if let basin = basin(containing: i) {
-                // Filled up to the shorter wall, then a cap that banks against the taller wall and
-                // falls away toward the shorter one, where it spills; no shoulders at either wall.
-                let span = Float(max(1, basin.upper - basin.lower))
-                let towardSpill = Float(basin.spillAtEnd ? i - basin.lower : basin.upper - i) / span
-                let bank = 1 - 0.25 * towardSpill
-                capacities[i] = basin.rim + fullCapacities[i] * bank
-                baseCapacities[i] = basin.rim + fullBaseCapacities[i] * bank
+            if let fill = container(at: i) {
+                // Filled up to the shorter wall, then an ordinary undulating cap; no shoulders.
+                capacities[i] = fill.depth + fullCapacities[i]
+                baseCapacities[i] = fill.depth + fullBaseCapacities[i]
                 baseDeposition[i] = fullDeposition[i]
             } else {
                 capacities[i] = fullCapacities[i] * t
@@ -253,6 +251,18 @@ public final class SnowDrift {
         let isFloor = surface.id == DesktopSceneBuilder.groundID
         let middle = Float(heights.count - 1) / 2
         for i in heights.indices { scratch[i] = heights[i] }
+        // Which ends each free stretch reaches, found in one pass (not per overloaded sample).
+        var runEnds = [(start: Bool, end: Bool)](repeating: (false, false), count: heights.count)
+        if !isFloor {
+            var i = 0
+            while i < heights.count {
+                guard isFree(i) else { i += 1; continue }
+                var upper = i
+                while upper + 1 < heights.count, isFree(upper + 1) { upper += 1 }
+                for k in i...upper { runEnds[k] = (i == 0, upper == heights.count - 1) }
+                i = upper + 1
+            }
+        }
         for i in heights.indices where heights[i] > capacities[i] + 0.001 {
             let over = heights[i] - capacities[i]
             if isFloor {
@@ -269,21 +279,13 @@ public final class SnowDrift {
             // reaches neither (between covering windows) packs it away rather than letting it
             // stand as a tower; otherwise it creeps toward a reachable end, the nearer one
             // unless that end faces a neighbour across a slit.
-            if let basin = basin(containing: i) {
-                // Overload in a basin moves toward its shorter wall and spills over it.
-                let j = basin.spillAtEnd ? i + 1 : i - 1
-                let excess = over
-                scratch[i] -= excess
-                if j < basin.lower || j > basin.upper {
-                    let edge = Float(basin.spillAtEnd ? basin.upper : basin.lower) * spacing
-                        + (basin.spillAtEnd ? spacing * 0.5 : -spacing * 0.5)
-                    spilled.append((basin.wallID, basin.spillAtEnd, surface.x + edge, excess * spacing))
-                } else {
-                    scratch[j] += excess
-                }
+            if let fill = container(at: i) {
+                // A full container overflows over its shorter wall.
+                scratch[i] -= over
+                spilled.append((fill.wallID, fill.towardEnd, fill.wallX, over * spacing))
                 continue
             }
-            let (startOpen, endOpen) = reachableEnds(from: i)
+            let (startOpen, endOpen) = runEnds[i]
             guard startOpen || endOpen else {
                 scratch[i] -= over * 0.05
                 continue
@@ -355,7 +357,7 @@ public final class SnowDrift {
     /// overload there could only pile up into a pillar.
     func canShedOverload(at localX: Float) -> Bool {
         let i = max(0, min(heights.count - 1, Int((localX / spacing).rounded())))
-        if basin(containing: i) != nil { return true }
+        if container(at: i) != nil { return true }
         let ends = reachableEnds(from: i)
         return ends.start || ends.end
     }
@@ -503,6 +505,9 @@ public final class SnowDrift {
         var result: [(localX: Float, mass: Float)] = []
         for side in 0..<2 {
             if side == 0 ? skip.start : skip.end { continue }
+            // An end lying in a container keeps its snow: a container only overflows over its
+            // shorter wall.
+            if container(at: side == 0 ? 0 : heights.count - 1) != nil { continue }
             let probe = side == 0 ? min(surface.width, spacing) : max(0, surface.width - spacing)
             guard surface.isExposed(at: probe) else { continue }
             var mass: Float = 0

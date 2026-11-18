@@ -34,15 +34,22 @@ final class OverloadReachTests: XCTestCase {
         // From a real desktop: the terminal's top counts as visible behind Spotify (Spotify is
         // only 16 pt higher), but only the slit is open sky. Its far end lies under Spotify's
         // body, so overload there must pack away rather than pile up in the slit.
-        let simulation = world(Surface(id: 1, x: 327, y: 138, width: 700, visibleSpans: [Span(33, 700)],
-                                       snowfallSpans: [Span(33, 58)]))
+        let top = Surface(id: 1, x: 327, y: 138, width: 700, visibleSpans: [Span(33, 700)], snowfallSpans: [Span(33, 58)])
+        let simulation = SnowSimulation(size: SIMD2(1200, 800), budget: SimulationBudget(flakes: 0, debris: 96), seed: 8)
+        simulation.updateScene(surfaces: [Surface(id: DesktopSceneBuilder.groundID, x: 0, y: 800, width: 1200), top],
+                               bodies: [SolidBody(id: 1, bounds: CGRect(x: 327, y: 138, width: 700, height: 300)),
+                                        // Spotify, standing on the terminal's top from x 385 on.
+                                        SolidBody(id: 2, bounds: CGRect(x: 385, y: 122, width: 600, height: 400))])
+        simulation.clear()
         let drift = simulation.drifts.first { $0.surface.id == 1 }!
         // Snow keeps falling into the slit (shed off both neighbouring caps).
         for _ in 0..<(120 * 30) {
             drift.addOverload(at: 45, mass: 3)
             simulation.step(dt: 1 / 30, cursor: nil)
         }
-        XCTAssertLessThan(drift.heights.max() ?? 0, 25, "No mountain grows out of the slit")
+        // With no wall on the left this is no container: the steady feed packs away into a low
+        // heap a little above the cap, never a mountain (with a wall it spills, see SnowContainerTests).
+        XCTAssertLessThan(drift.heights.max() ?? 0, 35, "No mountain grows out of the slit")
     }
 
     func testFlakeLandsOnTopOfATallPile() {

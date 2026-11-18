@@ -242,7 +242,7 @@ public final class SnowDrift {
                 guard isFree(i) else { i += 1; continue }
                 var upper = i
                 while upper + 1 < heights.count, isFree(upper + 1) { upper += 1 }
-                for k in i...upper { runEnds[k] = (i == 0, upper == heights.count - 1) }
+                for k in i...upper { runEnds[k] = (reachesStart(i), reachesEnd(upper)) }
                 i = upper + 1
             }
         }
@@ -301,7 +301,17 @@ public final class SnowDrift {
         var lower = i, upper = i
         while lower > 0, isFree(lower - 1) { lower -= 1 }
         while upper < heights.count - 1, isFree(upper + 1) { upper += 1 }
-        return (lower == 0, upper == heights.count - 1)
+        return (reachesStart(lower), reachesEnd(upper))
+    }
+
+    /// Snow leaves a top over its rounded shoulder: a free stretch reaching into the shoulder
+    /// reaches the end, even when the shoulder's lowest samples dip behind a lower window.
+    private func reachesStart(_ lower: Int) -> Bool {
+        Float(lower) * spacing <= surface.cornerRadius + spacing + 0.001
+    }
+
+    private func reachesEnd(_ upper: Int) -> Bool {
+        surface.width - Float(upper) * spacing <= surface.cornerRadius + spacing + 0.001
     }
 
     /// Snow pushed under a window standing on this top packs away above that window's top.

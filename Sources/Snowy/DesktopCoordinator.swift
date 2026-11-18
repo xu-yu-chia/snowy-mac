@@ -56,6 +56,33 @@ final class DesktopCoordinator {
             onStateChange?()
         }
     }
+    /// Which displays get snow; a deselected display gets no panel, renderer or simulation.
+    var displaySelection: DisplaySelection {
+        didSet {
+            guard displaySelection != oldValue else { return }
+            UserDefaults.standard.set(displaySelection.stored, forKey: "excludedDisplays")
+            configureDisplays()
+            onStateChange?()
+        }
+    }
+    /// Connected displays for the Displays menu, in system order.
+    var availableDisplays: [(uuid: String?, name: String, included: Bool)] {
+        NSScreen.screens.map { screen in
+            let uuid = Self.uuid(of: screen)
+            return (uuid, screen.localizedName, displaySelection.includes(uuid))
+        }
+    }
+    var noDisplaySelected: Bool {
+        !NSScreen.screens.isEmpty && !NSScreen.screens.contains { displaySelection.includes(Self.uuid(of: $0)) }
+    }
+
+    /// The display's hardware UUID; stable across reboots and replugging, unlike its display ID.
+    static func uuid(of screen: NSScreen) -> String? {
+        guard let number = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber,
+              let uuid = CGDisplayCreateUUIDFromDisplayID(number.uint32Value)?.takeRetainedValue() else { return nil }
+        return CFUUIDCreateString(nil, uuid) as String
+    }
+
     /// Gusts swing the set wind (±30°, 60–130%); off, or under Reduce Motion, the wind is steady.
     var gusts: Bool {
         didSet {
@@ -130,6 +157,7 @@ final class DesktopCoordinator {
         wind = WindSettings(vector: SIMD2(UserDefaults.standard.float(forKey: "windX"),
                                          UserDefaults.standard.float(forKey: "windY")))
         gusts = UserDefaults.standard.object(forKey: "windGusts") as? Bool ?? true
+        displaySelection = DisplaySelection(stored: UserDefaults.standard.stringArray(forKey: "excludedDisplays") ?? [])
         tool = SnowTool(rawValue: UserDefaults.standard.string(forKey: "cursorTool") ?? "") ?? .glove
         policy = Self.readPolicy()
         installObservers()
@@ -263,13 +291,19 @@ final class DesktopCoordinator {
             display.panel.close()
         }
         displays.removeAll()
-        let screens = Array(NSScreen.screens.prefix(6))
-        guard let primary = screens.first else {
+        // Coordinates stay relative to the system primary display, even when it gets no snow.
+        guard let primary = NSScreen.screens.first else {
             reconfiguring = false
             updateState()
             return
         }
         primaryTop = primary.frame.maxY
+        let screens = Array(NSScreen.screens.filter { displaySelection.includes(Self.uuid(of: $0)) }.prefix(6))
+        guard !screens.isEmpty else {
+            reconfiguring = false
+            updateState()
+            return
+        }
         let totalArea = max(1, screens.reduce(CGFloat(0)) { $0 + $1.frame.width * $1.frame.height })
         let totalFlakes = min(900, max(80, Int(totalArea / 1_000_000 * 180)))
         do {

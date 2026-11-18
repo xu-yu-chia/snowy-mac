@@ -5,6 +5,7 @@ import SnowCore
 final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSMenuDelegate, NSMenuItemValidation {
     private var coordinator: DesktopCoordinator?
     private var statusItem: NSStatusItem?
+    private let displaysMenu = NSMenu(title: "Displays")
     private let pauseItem = NSMenuItem(title: "Pause Snow", action: #selector(togglePause), keyEquivalent: "p")
     private let stateItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
     private var weatherItems: [NSMenuItem] = []
@@ -164,6 +165,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSM
         let grainItem = NSMenuItem(title: "Grain Size", action: nil, keyEquivalent: "")
         grainItem.submenu = grainMenu
         menu.addItem(grainItem)
+        displaysMenu.delegate = self
+        displaysMenu.autoenablesItems = false
+        let displaysItem = NSMenuItem(title: "Displays", action: nil, keyEquivalent: "")
+        displaysItem.submenu = displaysMenu
+        menu.addItem(displaysItem)
         let wind = NSMenuItem(title: "Wind…", action: #selector(showWind), keyEquivalent: "w")
         wind.target = self
         menu.addItem(wind)
@@ -177,7 +183,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSM
         item.menu = menu
     }
 
+    /// The Displays submenu is rebuilt each time it opens, so connected displays are current.
+    func menuNeedsUpdate(_ menu: NSMenu) {
+        guard menu === displaysMenu, let coordinator else { return }
+        menu.removeAllItems()
+        for display in coordinator.availableDisplays {
+            let item = NSMenuItem(title: display.name, action: #selector(toggleDisplay(_:)), keyEquivalent: "")
+            item.target = self
+            item.state = display.included ? .on : .off
+            item.representedObject = display.uuid
+            // A display without a UUID cannot be remembered, so it always gets snow.
+            item.isEnabled = display.uuid != nil
+            menu.addItem(item)
+        }
+    }
+
+    @objc private func toggleDisplay(_ sender: NSMenuItem) {
+        guard let uuid = sender.representedObject as? String, let coordinator else { return }
+        coordinator.displaySelection.setIncluded(sender.state != .on, for: uuid)
+    }
+
     func menuWillOpen(_ menu: NSMenu) {
+        guard menu !== displaysMenu else { return }
         updateAvailableRelease()
         updater.probeForUpdates()
     }
@@ -234,6 +261,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSM
         if coordinator.failed { stateItem.title = "Rendering stopped — relaunch to retry" }
         else if coordinator.policy.suspended { stateItem.title = "Resting while your Mac cools down" }
         else if coordinator.paused { stateItem.title = "Snow is paused" }
+        else if coordinator.noDisplaySelected { stateItem.title = "No display selected" }
         else if coordinator.policy.reducedMotion { stateItem.title = "Quiet drifts · Reduce Motion" }
         else if coordinator.policy.particleScale < 1 { stateItem.title = "Gentle snowfall · saving energy" }
         else if coordinator.weather == .rain { stateItem.title = "Stir the rising water with your pointer" }

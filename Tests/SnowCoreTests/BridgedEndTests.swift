@@ -7,6 +7,11 @@ import XCTest
 final class BridgedEndTests: XCTestCase {
     private let display = CGRect(x: 0, y: 0, width: 1920, height: 1080)
 
+    /// How far the snow surface stands above the top's flat edge, at its highest.
+    private func rise(_ cap: SnowDrift) -> Float {
+        cap.heights.indices.map { cap.surface.y - (cap.surface.baseY(at: Float($0) * cap.spacing) - cap.heights[$0]) }.max() ?? 0
+    }
+
     private func widget(_ id: UInt64, x: CGFloat) -> DesktopWindowRecord {
         DesktopWindowRecord(id: id, bounds: CGRect(x: x, y: 38, width: 180, height: 180),
                             layer: -2_147_483_601, role: .widget)
@@ -22,7 +27,9 @@ final class BridgedEndTests: XCTestCase {
         for _ in 0..<(360 * 30) { simulation.step(dt: 1 / 30, cursor: nil) }
         for id: UInt64 in [1, 2] {
             let cap = simulation.drifts.first { $0.surface.id == id }!
-            let tallest = cap.heights.max() ?? 0
+            // Measured from the widget's flat top: snow filling the V between the two rounded
+            // corners is deep from the corner's base but level with the rest, not a spike.
+            let tallest = rise(cap)
             XCTAssertLessThan(tallest, 20, "Widget \(id) grew a \(tallest) pt spike")
         }
     }
@@ -46,8 +53,8 @@ final class BridgedEndTests: XCTestCase {
             simulation.step(dt: 1 / 30, cursor: nil)
             worst = max(worst, left.heights.max() ?? 0, right.heights.max() ?? 0)
         }
-        XCTAssertLessThan(left.heights.max() ?? 0, 20)
-        XCTAssertLessThan(right.heights.max() ?? 0, 20)
+        XCTAssertLessThan(rise(left), 20)
+        XCTAssertLessThan(rise(right), 20)
     }
 
     /// A full-size window covers both widgets for a while, then goes away.

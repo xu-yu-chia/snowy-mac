@@ -246,7 +246,7 @@ extension SnowSimulation {
                 return others.filter { $0.contains(probe) }.map { base - $0.top(at: probe.x) }.min() ?? .infinity
             })
         }
-        refreshSnowContainers()
+        refreshBasins()
     }
 }
 

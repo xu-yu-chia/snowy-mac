@@ -37,6 +37,15 @@ public struct SolidBody: Equatable, Sendable {
         Float(bounds.minY) + max(topSlope * (x - Float(bounds.minX)), topSlope * (x - Float(bounds.maxX)))
     }
 
+    /// The top outline including the rounded corners (same shoulder as `Surface.baseY`).
+    public func contour(at x: Float) -> Float {
+        let edge = max(0, min(x - Float(bounds.minX), Float(bounds.maxX) - x))
+        let radius = max(0, min(cornerRadius, Float(min(bounds.width, bounds.height)) / 2))
+        guard radius > 0, edge < radius else { return top(at: x) }
+        let horizontal = radius - edge
+        return top(at: x) + radius - sqrt(max(0, radius * radius - horizontal * horizontal))
+    }
+
     public func bottom(at x: Float) -> Float {
         Float(bounds.maxY) + min(bottomSlope * (x - Float(bounds.minX)), bottomSlope * (x - Float(bounds.maxX)))
     }

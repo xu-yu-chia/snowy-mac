@@ -137,6 +137,8 @@ public final class SnowSimulation {
         var mass: Float
     }
     var snowReleases: [SnowRelease] = []
+    /// Basins between taller windows, rebuilt with the scene (see refreshBasins).
+    var basins: [Basin] = []
     /// Rain water that left a top (overflow, a moved or closed window) and still has to fall.
     var pendingRunoff: [(position: SIMD2<Float>, area: Float)] = []
     var carriedContacts: [SnowRelease] = []
@@ -255,9 +257,8 @@ public final class SnowSimulation {
         }
         if settleAge >= 0.1 {
             for drift in drifts { drift.settle() }
+            solveBasins()
             shedOverloadedCaps()
-            landBasinSpills()
-            refreshJoinedEnds()
             settleAge = 0
             meshDirty = true
         }

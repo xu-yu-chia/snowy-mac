@@ -255,15 +255,19 @@ extension SnowSimulation {
             // sudden chunks, so the pile's outline stays continuous.
             let start = neighbor(of: drift, atEnd: false), end = neighbor(of: drift, atEnd: true)
             // Overload never creeps toward a facing neighbour, so it cannot ping-pong across a slit.
-            drift.blockedEnds = (start != nil, end != nil)
+            // An end that is a basin's outlet never hands snow back into the basin: overload creeps
+            // to the far end and nothing sheds there.
+            let outletStart = basins.contains { $0.wallID == drift.surface.id && $0.outward > 0 && abs($0.outletX - drift.surface.x) < 4 }
+            let outletEnd = basins.contains {
+                $0.wallID == drift.surface.id && $0.outward < 0 && abs($0.outletX - (drift.surface.x + drift.surface.width)) < 4
+            }
+            drift.blockedEnds = (start != nil || outletStart, end != nil || outletEnd)
             let overloaded = drift.isOverloaded
             guard overloaded || (!drift.surface.isDock && drift.fillRatio >= 0.95) else { continue }
             // Across a slit, snow only crosses while the neighbour's facing end has room for it.
             let startFull = start.map { $0.drift.spareArea(near: $0.localX, band: 16) < 1 } ?? false
             let endFull = end.map { $0.drift.spareArea(near: $0.localX, band: 16) < 1 } ?? false
-            // An end joined to a filled slit only sheds snow above capacity; the steady trickle
-            // would carve the join back into a shoulder.
-            let skip = (startFull || (drift.joinedEnds.start && !overloaded), endFull || (drift.joinedEnds.end && !overloaded))
+            let skip = (startFull || outletStart, endFull || outletEnd)
             for shed in drift.shedEnds(fraction: 0.05, band: 16, skipping: skip) {
                 let atEnd = shed.localX > 0
                 if let target = atEnd ? end : start {
@@ -282,109 +286,6 @@ extension SnowSimulation {
         applySnowReleases()
     }
 
-
-    /// A cap end joins the snow in the slit beside it once that snow has filled up to the cap's
-    /// top: the cap then keeps full depth to its edge and the two read as one drift.
-    func refreshJoinedEnds() {
-        for drift in drifts where drift.surface.id != DesktopSceneBuilder.groundID && !drift.surface.isDock {
-            drift.setJoinedEnds(start: slitSnowReachesTop(of: drift, atEnd: false),
-                                end: slitSnowReachesTop(of: drift, atEnd: true))
-        }
-    }
-
-    /// How far a wall can be from a spot and still hold snow in there: only narrow hollows
-    /// fill, never a wide stretch between two distant tall windows.
-    static let containerReach: Float = 64
-
-    /// Finds containers across the whole desktop: the topmost window edge at each x forms a
-    /// terrain, and a spot of it with a higher wall within `containerReach` on both sides lies in
-    /// a hollow (possibly formed by several windows). Snow there fills up to the shorter of the
-    /// two walls and spills over it.
-    func refreshSnowContainers() {
-        let step: Float = 2
-        let columns = max(1, Int((size.x / step).rounded(.up)))
-        // Topmost edge (smallest y) and its window at each column; the floor where none.
-        var terrain = [Float](repeating: size.y, count: columns)
-        var owner = [UInt64?](repeating: nil, count: columns)
-        for body in bodies where !body.isElevated && body.id != DesktopSceneBuilder.dockID {
-            let first = max(0, Int(Float(body.bounds.minX) / step)), last = min(columns - 1, Int(Float(body.bounds.maxX) / step))
-            guard first <= last else { continue }
-            for c in first...last {
-                let top = body.top(at: (Float(c) + 0.5) * step)
-                if top < terrain[c] { terrain[c] = top; owner[c] = body.id }
-            }
-        }
-        let reach = Int(Self.containerReach / step)
-        for drift in drifts {
-            guard drift.surface.id != DesktopSceneBuilder.groundID, !drift.surface.isDock, !drift.surface.isElevated else {
-                drift.setContainerFill([])
-                continue
-            }
-            drift.setContainerFill(drift.heights.indices.map { i -> SnowDrift.ContainerFill? in
-                guard drift.isFree(i) else { return nil }
-                let x = drift.surface.x + Float(i) * drift.spacing
-                let c = max(0, min(columns - 1, Int(x / step)))
-                let floorY = drift.surface.baseY(at: Float(i) * drift.spacing)
-                // Only the topmost edge at this exact x is a floor (columns are coarser than samples).
-                guard !bodies.contains(where: { body in
-                    body.id != drift.surface.id && !body.isElevated && body.id != DesktopSceneBuilder.dockID
-                        && x >= Float(body.bounds.minX) && x < Float(body.bounds.maxX) && body.top(at: x) < floorY - 0.5
-                }) else { return nil }
-                var left: (y: Float, c: Int)?, right: (y: Float, c: Int)?
-                // Walls are other windows; this top's own flat edge is not a wall to its rounded ends.
-                let own = drift.surface.id
-                for k in max(0, c - reach)..<c where owner[k] != own && terrain[k] < floorY - 0.5 && terrain[k] < (left?.y ?? .infinity) {
-                    left = (terrain[k], k)
-                }
-                if c + 1 < columns {
-                    for k in (c + 1)...min(columns - 1, c + reach)
-                    where owner[k] != own && terrain[k] < floorY - 0.5 && terrain[k] < (right?.y ?? .infinity) {
-                        right = (terrain[k], k)
-                    }
-                }
-                guard let l = left, let r = right, let leftID = owner[l.c], let rightID = owner[r.c] else { return nil }
-                // The shorter wall (lower top, larger y) is where the hollow overflows.
-                let towardEnd = r.y >= l.y
-                let wall = towardEnd ? r : l
-                guard let id = towardEnd ? rightID as UInt64? : leftID as UInt64? else { return nil }
-                // The wall's near edge: the first column past this spot that rises to it.
-                var edge = wall.c
-                if towardEnd { while edge > c + 1, terrain[edge - 1] <= wall.y + 0.5 { edge -= 1 } }
-                else { while edge < c - 1, terrain[edge + 1] <= wall.y + 0.5 { edge += 1 } }
-                let wallX = (Float(edge) + (towardEnd ? 0.5 : 0.5)) * step
-                return .init(depth: floorY - wall.y, wallID: id, towardEnd: towardEnd, wallX: wallX)
-            })
-        }
-    }
-
-    /// Snow spilled over a container's shorter wall lands on that window's top beside it;
-    /// what its top cannot take or shed packs away.
-    func landBasinSpills() {
-        for drift in drifts where !drift.spilled.isEmpty {
-            for spill in drift.spilled {
-                guard let wall = drifts.first(where: { $0.surface.id == spill.wallID }) else { continue }
-                let local = max(0, min(wall.surface.width, spill.x - wall.surface.x))
-                let rest = wall.depositMass(at: local, mass: spill.mass, direction: spill.atEnd ? 1 : -1)
-                if rest > 0.0001, wall.canShedOverload(at: local) { wall.addOverload(at: local, mass: rest) }
-            }
-            drift.spilled.removeAll()
-            meshDirty = true
-        }
-    }
-
-    private func slitSnowReachesTop(of source: SnowDrift, atEnd: Bool) -> Bool {
-        let surface = source.surface
-        guard surface.isExposed(at: atEnd ? max(0, surface.width - source.spacing) : min(surface.width, source.spacing)) else {
-            return false
-        }
-        let probeX = surface.x + (atEnd ? surface.width + 3 : -3)
-        for target in drifts where target !== source && target.surface.y > surface.y + 1 {
-            let local = probeX - target.surface.x
-            guard local >= 0, local <= target.surface.width, target.surface.isExposed(at: local) else { continue }
-            if target.surface.baseY(at: local) - target.height(at: local) <= surface.y + 3 { return true }
-        }
-        return false
-    }
 
     /// A neighbouring top across a narrow slit from one end (two widgets, a widget beside a
     /// window): within 16 pt horizontally and 10 pt of the same height, with its facing end exposed.

@@ -13,6 +13,9 @@ final class SnowyUpdater: NSObject, ObservableObject, SPUUpdaterDelegate {
     @Published private(set) var isUpdating = false
     var onChange: (() -> Void)?
     private var lastProbeTime: TimeInterval = -.infinity
+    /// This personal build never checks for, offers or installs updates: an official release
+    /// would replace its changes.
+    static let updatesDisabled = true
 
     init(testVersion: String? = nil) {
         self.availableVersion = testVersion
@@ -24,7 +27,7 @@ final class SnowyUpdater: NSObject, ObservableObject, SPUUpdaterDelegate {
     }
 
     func probeForUpdates(force: Bool = false) {
-        guard Bundle.main.bundleURL.pathExtension == "app" else { return }
+        guard !Self.updatesDisabled, Bundle.main.bundleURL.pathExtension == "app" else { return }
         let now = CACurrentMediaTime()
         guard force || now - lastProbeTime >= 300 else { return }
         guard updater.canCheckForUpdates else { return }
@@ -33,7 +36,7 @@ final class SnowyUpdater: NSObject, ObservableObject, SPUUpdaterDelegate {
     }
 
     func start() {
-        guard Bundle.main.bundleURL.pathExtension == "app" else { return }
+        guard !Self.updatesDisabled, Bundle.main.bundleURL.pathExtension == "app" else { return }
         do {
             try updater.start()
             if updater.automaticallyChecksForUpdates {
@@ -45,7 +48,7 @@ final class SnowyUpdater: NSObject, ObservableObject, SPUUpdaterDelegate {
     }
 
     func install() {
-        guard canInstall, updater.canCheckForUpdates else { return }
+        guard !Self.updatesDisabled, canInstall, updater.canCheckForUpdates else { return }
         driver.installRequested = true
         isUpdating = true
         onChange?()

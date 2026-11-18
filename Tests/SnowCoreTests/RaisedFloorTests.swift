@@ -92,6 +92,25 @@ final class RaisedFloorTests: XCTestCase {
         XCTAssertGreaterThan(outlet.heights.reduce(0, +) - before, 20, "And spills over the outlet edge")
     }
 
+    func testTheOutletEdgeSettlesToTheRestingSlopeOnceFeedingStops() {
+        // GPT review (0e9766e): ten seconds after feeding stopped, the outlet edge stayed ~42°.
+        let s = hollow()
+        fill(s)
+        let floor = drift(s, 2)
+        for _ in 0..<(30 * 30) {
+            floor.addOverload(at: 160 - 150, mass: 6)
+            s.step(dt: 1 / 30, cursor: nil)
+        }
+        for _ in 0..<(10 * 30) { s.step(dt: 1 / 30, cursor: nil) }
+        var steepest: Float = 0
+        // Up to the last basin sample (the floor's own last sample sits under the outlet wall's edge).
+        for x in stride(from: Float(200), through: 240, by: 4) {
+            steepest = max(steepest, abs(top(floor, x: x + 4) - top(floor, x: x)) / 4)
+        }
+        // About the angle of repose; the outlet edge, drained a little every settle, may stand to ~40°.
+        XCTAssertLessThanOrEqual(steepest, 0.85, "The edge by the outlet has no cliff")
+    }
+
     func testTheGloveReachesARaisedSurface() {
         let s = make([window(1, x: 100, y: 100, width: 50), window(2, x: 150, y: 200, width: 100), window(3, x: 250, y: 100, width: 300)])
         let floor = drift(s, 2)

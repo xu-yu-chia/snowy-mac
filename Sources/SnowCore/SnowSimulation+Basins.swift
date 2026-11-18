@@ -221,11 +221,8 @@ extension SnowSimulation {
                 from.heights[f] -= area / from.spacing
                 to.heights[t] += area / to.spacing
             }
-            for (p, q) in basins[b].pairs { trade(members[p].drift, members[p].index, members[q].drift, members[q].index) }
-            if let outlet = basins[b].outletSample, let edge = basins[b].edgeMember {
-                trade(members[edge].drift, members[edge].index, outlet.drift, outlet.index)
-            }
-            // A full basin trickles off at its outlet, as a full top sheds at its edge.
+            // A full basin trickles off at its outlet, as a full top sheds at its edge (before the
+            // neighbours even out, so the outlet edge never stays steeper than the rest).
             let held = members.reduce(Float(0)) { $0 + $1.drift.heights[$1.index] * $1.drift.spacing }
             let room = members.reduce(Float(0)) { $0 + $1.drift.capacity(at: $1.index) * $1.drift.spacing }
             if room > 0, held / room >= 0.95, let edge = basins[b].edgeMember {
@@ -234,6 +231,10 @@ extension SnowSimulation {
                 let trickle = cap * 0.05
                 m.drift.heights[m.index] -= trickle
                 basins[b].pending += trickle * m.drift.spacing
+            }
+            for (p, q) in basins[b].pairs { trade(members[p].drift, members[p].index, members[q].drift, members[q].index) }
+            if let outlet = basins[b].outletSample, let edge = basins[b].edgeMember {
+                trade(members[edge].drift, members[edge].index, outlet.drift, outlet.index)
             }
             // Waiting snow tops up spots below the outlet level, lowest first and gradually (a
             // freshly dug hole stays a hole for a moment).

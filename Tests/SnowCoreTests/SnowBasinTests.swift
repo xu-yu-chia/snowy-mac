@@ -146,6 +146,35 @@ final class SnowBasinTests: XCTestCase {
         XCTAssertEqual(top(lastMember.drift, lastMember.index), top(line, 1), accuracy: 6, "The basin's snow meets LINE's snow")
     }
 
+    func testRoundedCornersAtTheSeamLeaveNoNotch() {
+        // From the latest real desktop dump: the Reminders widget (54), the terminal (144) as the
+        // floor and Spotify (122) as the outlet, both windows with 26 pt rounded corners.
+        let widget = (Surface(id: 41, x: 196, y: 54, width: 164, cornerRadius: 22),
+                      SolidBody(id: 41, bounds: CGRect(x: 196, y: 54, width: 164, height: 156), cornerRadius: 22))
+        let terminal = (Surface(id: 398, x: 325, y: 144, width: 1234, visibleSpans: [Span(35, 86), Span(1140, 1234)],
+                                cornerRadius: 26, snowfallSpans: [Span(35, 60), Span(1166, 1234)]),
+                        SolidBody(id: 398, bounds: CGRect(x: 325, y: 144, width: 1234, height: 535), cornerRadius: 26))
+        let spotify = (Surface(id: 11627, x: 385, y: 122, width: 1106, cornerRadius: 26),
+                       SolidBody(id: 11627, bounds: CGRect(x: 385, y: 122, width: 1106, height: 721), cornerRadius: 26))
+        let s = make([widget.0, terminal.0, spotify.0], [widget.1, terminal.1, spotify.1])
+        drift(s, 398).addOverload(at: 372 - 325, mass: 6_000)
+        for _ in 0..<(20 * 30) { s.step(dt: 1 / 30, cursor: nil) }
+        // The visible snow surface: at each x, the highest snow top of any top drawn there.
+        func surface(at x: Float) -> Float {
+            s.drifts.compactMap { d -> Float? in
+                let local = x - d.surface.x
+                guard local >= 0, local <= d.surface.width, d.surface.isExposed(at: local), d.surface.id != DesktopSceneBuilder.groundID else { return nil }
+                return d.surface.baseY(at: local) - d.height(at: local)
+            }.min() ?? 800
+        }
+        var worst: Float = 0, at: Float = 0
+        for x in stride(from: Float(362), through: 430, by: 1) {
+            let jump = abs(surface(at: x + 1) - surface(at: x))
+            if jump > worst { worst = jump; at = x }
+        }
+        XCTAssertLessThanOrEqual(worst, 4, "A \(worst) pt notch at x \(at)")
+    }
+
     func testSnowBehindAnotherWindowNeverRisesAboveIt() {
         let s = make([window(1, x: 196, y: 54, width: 164, height: 156), window(2, x: 385, y: 122, width: 500),
                       window(3, x: 327, y: 138, width: 700, visible: [Span(33, 700)], sky: [Span(33, 58)])])

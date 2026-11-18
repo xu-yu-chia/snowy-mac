@@ -243,7 +243,8 @@ extension SnowSimulation {
                 let local = Float(i) * drift.spacing
                 let base = drift.surface.baseY(at: local)
                 let probe = SIMD2(drift.surface.x + local, base - 1)
-                return others.filter { $0.contains(probe) }.map { base - $0.top(at: probe.x) }.min() ?? .infinity
+                // Up to the standing window's actual outline, rounded corners included.
+                return others.filter { $0.contains(probe) }.map { base - $0.contour(at: probe.x) }.min() ?? .infinity
             })
         }
         refreshBasins()

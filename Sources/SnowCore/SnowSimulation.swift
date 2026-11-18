@@ -139,6 +139,7 @@ public final class SnowSimulation {
     var snowReleases: [SnowRelease] = []
     /// Basins between taller windows, rebuilt with the scene (see refreshBasins).
     var basins: [Basin] = []
+    var basinKey: BasinKey?
     /// Rain water that left a top (overflow, a moved or closed window) and still has to fall.
     var pendingRunoff: [(position: SIMD2<Float>, area: Float)] = []
     var carriedContacts: [SnowRelease] = []

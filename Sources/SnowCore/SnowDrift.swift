@@ -131,7 +131,8 @@ public final class SnowDrift {
                 baseCapacities[i] = fullBaseCapacities[i] * t
                 baseDeposition[i] = fullDeposition[i] * t
             }
-            if !roomBelow.isEmpty, roomBelow[i].isFinite {
+            // A basin sample is never roofed by a window lying under the basin's level.
+            if !roomBelow.isEmpty, roomBelow[i].isFinite, basin(at: i) == nil {
                 let room = max(0, roomBelow[i])
                 capacities[i] = min(capacities[i], room)
                 baseCapacities[i] = min(baseCapacities[i], room)
@@ -267,7 +268,12 @@ public final class SnowDrift {
                 scratch[i] -= over * 0.05
                 continue
             }
-            var towardStart = (Float(i) < middle && startOpen) || !endOpen
+            let startUsable = startOpen && !outletEnds.start, endUsable = endOpen && !outletEnds.end
+            guard startUsable || endUsable else {
+                scratch[i] -= over * 0.05
+                continue
+            }
+            var towardStart = (Float(i) < middle && startUsable) || !endUsable
             if towardStart && blockedEnds.start && !blockedEnds.end && endOpen { towardStart = false }
             if !towardStart && blockedEnds.end && !blockedEnds.start && startOpen { towardStart = true }
             if blockedEnds.start && blockedEnds.end { continue }
@@ -301,7 +307,7 @@ public final class SnowDrift {
     /// Snow pushed under a window standing on this top packs away above that window's top.
     func clampToRoom() {
         guard !roomBelow.isEmpty else { return }
-        for i in heights.indices where roomBelow[i].isFinite { heights[i] = min(heights[i], max(0, roomBelow[i])) }
+        for i in heights.indices where roomBelow[i].isFinite && basin(at: i) == nil { heights[i] = min(heights[i], max(0, roomBelow[i])) }
     }
 
     /// An overloaded sample standing more than 4 pt above its inner neighbour slumps inward, so
@@ -328,6 +334,16 @@ public final class SnowDrift {
     /// Which ends overload should not creep toward, because they face a neighbouring top
     /// across a narrow slit (set by the simulation before each settle).
     var blockedEnds: (start: Bool, end: Bool) = (false, false)
+    /// Ends that are a snow basin's outlet: snow never creeps or sheds back into the basin there.
+    /// Kept apart from `blockedEnds`, which rain also reads.
+    var outletEnds: (start: Bool, end: Bool) = (false, false)
+
+    /// Whether overload at `localX` can reach an end that sheds (exposed, not a basin outlet).
+    func hasOpenExit(at localX: Float) -> Bool {
+        let i = max(0, min(heights.count - 1, Int((localX / spacing).rounded())))
+        let ends = reachableEnds(from: i)
+        return (ends.start && !outletEnds.start) || (ends.end && !outletEnds.end)
+    }
 
     /// Whether overload added at `localX` can creep to an exposed end of this top and shed. A
     /// stretch exposed only between covering windows (the floor of a slit) has no such end:

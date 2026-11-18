@@ -16,6 +16,12 @@ extension SnowSimulation {
         var members: [(drift: SnowDrift, index: Int, floorY: Float, x: Float)] = []
     }
 
+    struct BasinKey: Equatable {
+        var bodies: [SolidBody]
+        var drifts: [ObjectIdentifier]
+        var surfaces: [Surface]
+    }
+
     static let terrainStep: Float = 2
     /// Wider hollows are no container: snow does not fill a broad stretch between distant walls.
     static let maximumBasinWidth: Float = 160
@@ -24,6 +30,10 @@ extension SnowSimulation {
     /// Rebuilds basins when the scene changes. Snow on samples leaving a basin that no longer
     /// fits an ordinary cap falls from there as loose snow (never deleted).
     func refreshBasins() {
+        // Wind changes refresh corner wind too; basins only depend on geometry.
+        let key = BasinKey(bodies: bodies, drifts: drifts.map { ObjectIdentifier($0) }, surfaces: drifts.map(\.surface))
+        guard key != basinKey else { return }
+        basinKey = key
         let step = Self.terrainStep
         let columns = max(1, Int((size.x / step).rounded(.up)))
         let walls = bodies.filter { !$0.isElevated && $0.id != DesktopSceneBuilder.dockID }
@@ -74,10 +84,9 @@ extension SnowSimulation {
             let level = water[c]
             guard c > 0, b + 1 < columns, let leftID = owner[c - 1], let rightID = owner[b + 1],
                   Float(b - c + 1) * step <= Self.maximumBasinWidth else { continue }
-            // Both walls must reach down to the basin floor; a hanging window leaks underneath.
-            let deepest = (c...b).map { terrain[$0] }.max() ?? level
+            // Each wall must reach down to the floor beside it; a hanging window leaks underneath.
             guard let leftWall = walls.first(where: { $0.id == leftID }), let rightWall = walls.first(where: { $0.id == rightID }),
-                  Float(leftWall.bounds.maxY) >= deepest - 1, Float(rightWall.bounds.maxY) >= deepest - 1 else { continue }
+                  Float(leftWall.bounds.maxY) >= terrain[c] - 1, Float(rightWall.bounds.maxY) >= terrain[b] - 1 else { continue }
             let towardRight = abs(terrain[b + 1] - level) <= abs(terrain[c - 1] - level)
             basins.append(Basin(level: level, wallID: towardRight ? rightID : leftID, outward: towardRight ? 1 : -1,
                                 outletX: towardRight ? Float(b + 1) * step : Float(c) * step))
@@ -86,15 +95,19 @@ extension SnowSimulation {
         for drift in drifts {
             var membership = [Int?](repeating: nil, count: drift.heights.count)
             if drift.surface.id != DesktopSceneBuilder.groundID, !drift.surface.isDock, !drift.surface.isElevated {
-                for i in drift.heights.indices where drift.isFree(i) {
+                for i in drift.heights.indices where drift.surface.isExposed(at: Float(i) * drift.spacing) {
                     let local = Float(i) * drift.spacing
                     let x = drift.surface.x + local
                     let column = max(0, min(columns - 1, Int(x / step)))
                     guard let index = basinOfColumn[column] else { continue }
                     let floorY = drift.surface.baseY(at: local)
-                    guard floorY > basins[index].level + 0.5,
+                    // Another window above this spot roofs it only if it rises above the level;
+                    // one below the level is just another floor of the same basin.
+                    let level = basins[index].level
+                    guard floorY > level + 0.5,
                           !walls.contains(where: { $0.id != drift.surface.id && x >= Float($0.bounds.minX)
-                              && x < Float($0.bounds.maxX) && $0.contour(at: x) < floorY - 0.5 }) else { continue }
+                              && x < Float($0.bounds.maxX) && $0.contour(at: x) < floorY - 0.5 && $0.contour(at: x) <= level + 0.5 })
+                    else { continue }
                     membership[i] = index
                     basins[index].members.append((drift, i, floorY, x))
                 }
@@ -175,12 +188,18 @@ extension SnowSimulation {
     private func release(overflow mass: Float, from basin: Basin) {
         var rest = mass
         if let wall = drifts.first(where: { $0.surface.id == basin.wallID }) {
-            let local = max(0, min(wall.surface.width, basin.outletX + basin.outward * wall.spacing - wall.surface.x))
-            let index = max(0, min(wall.heights.count - 1, Int((local / wall.spacing).rounded())))
-            if wall.basin(at: index) == nil {
+            // The first sample past the outlet that is not part of any basin (a rounded outlet
+            // corner is itself in the basin).
+            var index = max(0, min(wall.heights.count - 1, Int(((basin.outletX - wall.surface.x) / wall.spacing).rounded())))
+            while wall.heights.indices.contains(index), wall.basin(at: index) != nil { index += basin.outward > 0 ? 1 : -1 }
+            if wall.heights.indices.contains(index) {
+                let local = Float(index) * wall.spacing
                 rest = wall.depositMass(at: local, mass: rest, direction: basin.outward)
-                if rest > 0.0001, wall.canShedOverload(at: local) {
-                    wall.addOverload(at: local, mass: rest)
+                // Extra snow joins the wall top's overload a little further out, and only if that
+                // top can shed it at an end that is not an outlet.
+                let further = max(0, min(wall.surface.width, local + basin.outward * 3 * wall.spacing))
+                if rest > 0.0001, wall.hasOpenExit(at: further) {
+                    wall.addOverload(at: further, mass: rest)
                     rest = 0
                 }
             }

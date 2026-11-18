@@ -257,11 +257,14 @@ extension SnowSimulation {
             // Overload never creeps toward a facing neighbour, so it cannot ping-pong across a slit.
             // An end that is a basin's outlet never hands snow back into the basin: overload creeps
             // to the far end and nothing sheds there.
-            let outletStart = basins.contains { $0.wallID == drift.surface.id && $0.outward > 0 && abs($0.outletX - drift.surface.x) < 4 }
+            // Within a rounded corner plus a sample of the end counts as that end.
+            let reach = drift.surface.cornerRadius + drift.spacing + 2
+            let outletStart = basins.contains { $0.wallID == drift.surface.id && $0.outward > 0 && abs($0.outletX - drift.surface.x) < reach }
             let outletEnd = basins.contains {
-                $0.wallID == drift.surface.id && $0.outward < 0 && abs($0.outletX - (drift.surface.x + drift.surface.width)) < 4
+                $0.wallID == drift.surface.id && $0.outward < 0 && abs($0.outletX - (drift.surface.x + drift.surface.width)) < reach
             }
-            drift.blockedEnds = (start != nil || outletStart, end != nil || outletEnd)
+            drift.blockedEnds = (start != nil, end != nil)
+            drift.outletEnds = (outletStart, outletEnd)
             let overloaded = drift.isOverloaded
             guard overloaded || (!drift.surface.isDock && drift.fillRatio >= 0.95) else { continue }
             // Across a slit, snow only crosses while the neighbour's facing end has room for it.

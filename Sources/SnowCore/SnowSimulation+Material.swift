@@ -267,18 +267,10 @@ extension SnowSimulation {
             drift.outletEnds = (outletStart, outletEnd)
             let overloaded = drift.isOverloaded
             guard overloaded || (!drift.surface.isDock && drift.fillRatio >= 0.95) else { continue }
-            // Across a slit, snow only crosses while the neighbour's facing end has room for it.
-            let startFull = start.map { $0.drift.spareArea(near: $0.localX, band: 16) < 1 } ?? false
-            let endFull = end.map { $0.drift.spareArea(near: $0.localX, band: 16) < 1 } ?? false
-            let skip = (startFull || outletStart, endFull || outletEnd)
-            for shed in drift.shedEnds(fraction: 0.05, band: 16, skipping: skip) {
+            // Snow sliding off an end falls past it, also into a narrow slit beside a neighbouring
+            // top (it never crosses onto that top, so facing ends do not trade snow and pile up).
+            for shed in drift.shedEnds(fraction: 0.05, band: 16, skipping: (outletStart, outletEnd)) {
                 let atEnd = shed.localX > 0
-                if let target = atEnd ? end : start {
-                    let rest = target.drift.depositMass(at: target.localX, mass: shed.mass, direction: atEnd ? 1 : -1)
-                    if rest > 0.0001 { drift.addOverload(at: shed.localX, mass: rest) }
-                    meshDirty = true
-                    continue
-                }
                 let outward: Float = atEnd ? 1 : -1
                 let edgeX = drift.surface.x + shed.localX
                 let edgeY = drift.surface.baseY(at: min(drift.surface.width, max(0, shed.localX)))

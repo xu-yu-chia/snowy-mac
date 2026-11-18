@@ -14,6 +14,13 @@ extension SnowSimulation {
         var outward: Float
         var outletX: Float
         var members: [(drift: SnowDrift, index: Int, floorY: Float, x: Float)] = []
+        /// Neighbouring members (indices into `members`) that trade snow by surface height.
+        var pairs: [(Int, Int)] = []
+        /// The outlet wall's first sample past the basin, which trades snow with `edgeMember`.
+        var outletSample: (drift: SnowDrift, index: Int)?
+        var edgeMember: Int?
+        /// Snow waiting to fill the basin or leave by the outlet (pt²).
+        var pending: Float = 0
     }
 
     struct BasinKey: Equatable {
@@ -94,6 +101,7 @@ extension SnowSimulation {
         }
         for drift in drifts {
             var membership = [Int?](repeating: nil, count: drift.heights.count)
+            var depths = [Float](repeating: 0, count: drift.heights.count)
             if drift.surface.id != DesktopSceneBuilder.groundID, !drift.surface.isDock, !drift.surface.isElevated {
                 for i in drift.heights.indices where drift.surface.isExposed(at: Float(i) * drift.spacing) {
                     let local = Float(i) * drift.spacing
@@ -111,10 +119,29 @@ extension SnowSimulation {
                               && x < Float($0.bounds.maxX) && $0.contour(at: x) < floorY - 0.5 && $0.contour(at: x) <= level + 0.5 })
                     else { continue }
                     membership[i] = index
+                    depths[i] = floorY - level
                     basins[index].members.append((drift, i, floorY, x))
                 }
             }
-            drift.setBasins(membership)
+            drift.setBasins(membership, depths: depths)
+        }
+        for b in basins.indices {
+            let order = basins[b].members.indices.sorted { basins[b].members[$0].x < basins[b].members[$1].x }
+            for (p, q) in zip(order, order.dropFirst()) {
+                let a = basins[b].members[p], c = basins[b].members[q]
+                if c.x - a.x <= max(a.drift.spacing, c.drift.spacing) + 1 { basins[b].pairs.append((p, q)) }
+            }
+            // The outlet wall's first non-basin sample trades with the member nearest the outlet.
+            let basin = basins[b]
+            if let wall = drifts.first(where: { $0.surface.id == basin.wallID }),
+               let edge = basin.members.indices.min(by: { abs(basin.members[$0].x - basin.outletX) < abs(basin.members[$1].x - basin.outletX) }) {
+                var index = max(0, min(wall.heights.count - 1, Int(((basin.outletX - wall.surface.x) / wall.spacing).rounded())))
+                while wall.heights.indices.contains(index), wall.basin(at: index) != nil { index += basin.outward > 0 ? 1 : -1 }
+                if wall.heights.indices.contains(index), abs(wall.surface.x + Float(index) * wall.spacing - basin.members[edge].x) < 3 * wall.spacing + 1 {
+                    basins[b].outletSample = (wall, index)
+                    basins[b].edgeMember = edge
+                }
+            }
         }
         // Snow that sat in a basin but now only has an ordinary cap falls from there.
         for (d, drift) in drifts.enumerated() where d < oldMembership.count && oldMembership[d].count == drift.heights.count {
@@ -130,59 +157,88 @@ extension SnowSimulation {
         meshDirty = true
     }
 
-    /// Spreads each basin's total snow into one shared surface (every settle). Whatever entered
-    /// it (snowfall, landing grains, pushed snow) is simply part of the total. Snow beyond a full
-    /// basin and its cap overflows at the outlet.
-    func solveBasins() {
-        for basin in basins where !basin.members.isEmpty {
-            let members = basin.members
-            var volume: Float = 0
-            for m in members { volume += m.drift.heights[m.index] * m.drift.spacing }
-            let rimVolume = members.reduce(Float(0)) { $0 + ($1.floorY - basin.level) * $1.drift.spacing }
-            if volume <= rimVolume {
-                // Fill from the bottom: one water-like surface L.
-                var low = basin.level, high = members.map(\.floorY).max() ?? basin.level
-                for _ in 0..<40 {
-                    let mid = (low + high) / 2
-                    let held = members.reduce(Float(0)) { $0 + max(0, $1.floorY - mid) * $1.drift.spacing }
-                    if held > volume { low = mid } else { high = mid }
+    /// Share of the surface difference two neighbouring basin samples even out per second, so
+    /// a dug hole flows level over a few seconds.
+    static let basinFlowPerSecond: Float = 6
+    /// Fastest a basin's waiting snow leaves by its outlet (pt² per second).
+    static let basinOutflowPerSecond: Float = 600
+
+    /// Every settle: snow above a basin sample's limit joins the basin's waiting snow; neighbours
+    /// trade snow by surface height (also across windows and with the outlet's top), the waiting
+    /// snow tops up the lowest spots, and the rest leaves by the outlet. A full basin trickles a
+    /// little off at its outlet like any full top sheds at its edge.
+    func settleBasins(interval: Float) {
+        let share = min(0.5, Self.basinFlowPerSecond * interval)
+        for b in basins.indices where !basins[b].members.isEmpty {
+            let members = basins[b].members
+            for m in members {
+                let limit = m.drift.capacity(at: m.index)
+                if m.drift.heights[m.index] > limit {
+                    basins[b].pending += (m.drift.heights[m.index] - limit) * m.drift.spacing
+                    m.drift.heights[m.index] = limit
                 }
-                let surface = (low + high) / 2
-                for m in members { m.drift.heights[m.index] = max(0, m.floorY - surface) }
-                continue
             }
-            // Full to the outlet: the rest forms a cap that also fills from the bottom, each spot
-            // up to its own limit (lobes in screen space, and the wall's own snow at the outlet).
-            let extra = volume - rimVolume
-            let wall = drifts.first { $0.surface.id == basin.wallID }
-            let wallSnow = wall.map { $0.height(at: max(0, min($0.surface.width, basin.outletX + basin.outward * 2 - $0.surface.x))) }
-            let limits = members.map { m -> Float in
-                let lobe = 0.75 + (sin(m.x * 0.027) * 0.18 + sin(m.x * 0.071) * 0.09 + sin(m.x * 0.13) * 0.05) * 0.6
-                let cap = Self.basinCap * lobe
-                let distance = abs(m.x - basin.outletX)
-                guard let wallSnow, distance < 16 else { return cap }
-                return wallSnow + (cap - wallSnow) * distance / 16
+            // Snow flows into the hollow below the outlet level (a dug hole, an unfilled floor);
+            // above that level a basin is an ordinary top and its cap is left to build naturally.
+            func fillRoom(_ d: SnowDrift, _ k: Int) -> Float {
+                d.basin(at: k) != nil ? max(0, (d.basinDepth.indices.contains(k) ? d.basinDepth[k] : 0) - d.heights[k])
+                                      : max(0, d.capacity(at: k) - d.heights[k])
             }
-            let capVolume = zip(members, limits).reduce(Float(0)) { $0 + $1.1 * $1.0.drift.spacing }
-            var overflow: Float = 0
-            var thickness = limits.max() ?? 0
-            if extra < capVolume {
-                var low: Float = 0, high = thickness
-                for _ in 0..<40 {
-                    let mid = (low + high) / 2
-                    let held = zip(members, limits).reduce(Float(0)) { $0 + min($1.1, mid) * $1.0.drift.spacing }
-                    if held < extra { low = mid } else { high = mid }
+            func trade(_ a: SnowDrift, _ i: Int, _ c: SnowDrift, _ j: Int) {
+                let topA = a.surface.baseY(at: Float(i) * a.spacing) - a.heights[i]
+                let topC = c.surface.baseY(at: Float(j) * c.spacing) - c.heights[j]
+                let difference = topC - topA
+                guard abs(difference) > 0.05 else { return }
+                let (from, f, to, t) = difference > 0 ? (a, i, c, j) : (c, j, a, i)
+                let width = min(from.spacing, to.spacing)
+                // Into a spot below the outlet level snow pours quickly; above it, the cap settles
+                // like any top's (12% of the step per settle, up to the spot's own limit).
+                let filling = fillRoom(to, t) > 0.01 && to.basin(at: t) != nil
+                let rate = filling ? share : 0.12
+                let room = filling ? fillRoom(to, t) : max(0, to.capacity(at: t) - to.heights[t])
+                let area = min(abs(difference) * 0.5 * rate * width, from.heights[f] * from.spacing, room * to.spacing)
+                guard area > 0 else { return }
+                from.heights[f] -= area / from.spacing
+                to.heights[t] += area / to.spacing
+            }
+            for (p, q) in basins[b].pairs { trade(members[p].drift, members[p].index, members[q].drift, members[q].index) }
+            if let outlet = basins[b].outletSample, let edge = basins[b].edgeMember {
+                trade(members[edge].drift, members[edge].index, outlet.drift, outlet.index)
+            }
+            // A full basin trickles off at its outlet, as a full top sheds at its edge.
+            let held = members.reduce(Float(0)) { $0 + $1.drift.heights[$1.index] * $1.drift.spacing }
+            let room = members.reduce(Float(0)) { $0 + $1.drift.capacity(at: $1.index) * $1.drift.spacing }
+            if room > 0, held / room >= 0.95, let edge = basins[b].edgeMember {
+                let m = members[edge]
+                let cap = max(0, m.drift.heights[m.index] - (m.drift.capacity(at: m.index) - Self.basinCapLayer(m.drift, m.index)))
+                let trickle = cap * 0.05
+                m.drift.heights[m.index] -= trickle
+                basins[b].pending += trickle * m.drift.spacing
+            }
+            // Waiting snow tops up spots below the outlet level, lowest first and gradually (a
+            // freshly dug hole stays a hole for a moment).
+            if basins[b].pending > 0.0001 {
+                for m in members.sorted(by: { $0.drift.surface.baseY(at: Float($0.index) * $0.drift.spacing) - $0.drift.heights[$0.index]
+                                               > $1.drift.surface.baseY(at: Float($1.index) * $1.drift.spacing) - $1.drift.heights[$1.index] }) {
+                    let room = fillRoom(m.drift, m.index) * share * m.drift.spacing
+                    let add = min(room, basins[b].pending)
+                    m.drift.heights[m.index] += add / m.drift.spacing
+                    basins[b].pending -= add
+                    if basins[b].pending <= 0.0001 { break }
                 }
-                thickness = (low + high) / 2
-            } else {
-                overflow = extra - capVolume
             }
-            for (m, limit) in zip(members, limits) {
-                m.drift.heights[m.index] = (m.floorY - basin.level) + min(limit, thickness)
+            let leaving = min(basins[b].pending, Self.basinOutflowPerSecond * interval)
+            if leaving > 0.0001 {
+                basins[b].pending -= leaving
+                release(overflow: leaving, from: basins[b])
             }
-            if overflow > 0.0001 { release(overflow: overflow, from: basin) }
         }
         if !basins.isEmpty { meshDirty = true }
+    }
+
+    /// The ordinary-cap part of a basin sample's limit.
+    static func basinCapLayer(_ drift: SnowDrift, _ i: Int) -> Float {
+        drift.capacity(at: i) - (drift.basinDepth.indices.contains(i) ? drift.basinDepth[i] : 0)
     }
 
     /// Lands overflow on the outlet window's top, just outside the basin; what it cannot hold

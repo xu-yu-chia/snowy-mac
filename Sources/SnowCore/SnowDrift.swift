@@ -22,13 +22,20 @@ public final class SnowDrift {
     /// snow is shared: the simulation spreads its total over all its samples every settle, so
     /// these samples take any snow that lands and skip this top's own settling and shedding.
     private(set) var basinOf: [Int?] = []
+    /// How deep each basin sample's floor lies below the basin's outlet (its fill to that level).
+    private(set) var basinDepth: [Float] = []
 
-    func setBasins(_ next: [Int?]) {
+    func setBasins(_ next: [Int?], depths: [Float] = []) {
         let membership = next.contains { $0 != nil } ? next : []
-        guard membership != basinOf else { return }
+        let depth = membership.isEmpty ? [] : depths
+        guard membership != basinOf || depth != basinDepth else { return }
         basinOf = membership
+        basinDepth = depth
         rebuildLimits()
     }
+
+    /// Current snow limit of a sample (for a basin sample: its fill depth plus an ordinary cap).
+    func capacity(at i: Int) -> Float { capacities[i] }
 
     func basin(at i: Int) -> Int? { basinOf.isEmpty ? nil : basinOf[i] }
 
@@ -122,9 +129,11 @@ public final class SnowDrift {
         for i in heights.indices {
             let t = taper[i]
             if basin(at: i) != nil {
-                // A basin sample takes any snow that lands; the basin solve shapes it.
-                capacities[i] = 1_000_000
-                baseCapacities[i] = 1_000_000
+                // Filled to the outlet, a basin floor is a raised flat top: an ordinary cap (with
+                // its lobes, no shoulders) above its fill depth.
+                let depth = basinDepth.indices.contains(i) ? basinDepth[i] : 0
+                capacities[i] = depth + fullCapacities[i]
+                baseCapacities[i] = depth + fullBaseCapacities[i]
                 baseDeposition[i] = fullDeposition[i]
             } else {
                 capacities[i] = fullCapacities[i] * t
@@ -280,9 +289,6 @@ public final class SnowDrift {
                 continue
             }
             var towardStart = (Float(i) < middle && startUsable) || !endUsable
-            if towardStart && blockedEnds.start && !blockedEnds.end && endOpen { towardStart = false }
-            if !towardStart && blockedEnds.end && !blockedEnds.start && startOpen { towardStart = true }
-            if blockedEnds.start && blockedEnds.end { continue }
             let j = towardStart ? i - 1 : i + 1
             // Only creep toward an end that can shed: under a covering window nothing moves,
             // so the overload cannot collect in the end sample while the edge is hidden.

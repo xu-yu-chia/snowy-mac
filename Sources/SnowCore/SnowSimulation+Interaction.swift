@@ -24,7 +24,7 @@ extension SnowSimulation {
         for drift in drifts {
             guard max(start.x, end.x) + radius >= drift.surface.x,
                   min(start.x, end.x) - radius <= drift.surface.x + drift.surface.width,
-                  max(start.y, end.y) + radius >= drift.surface.y - 32,
+                  max(start.y, end.y) + radius >= drift.surface.y - max(32, drift.peak + 4),
                   min(start.y, end.y) - radius <= drift.surface.y + drift.surface.drop + 2 else { continue }
             for i in drift.heights.indices where drift.heights[i] > 0.001 {
                 let localX = Float(i) * drift.spacing
@@ -53,7 +53,10 @@ extension SnowSimulation {
                     continue
                 }
                 let direction = travel > 0.01 ? delta / travel : point - end
-                let ingress = SIMD2(point.x, min(point.y, base - looseSnow.cellSize * 0.65))
+                // Released where the glove touches the snow surface (a deep basin column's middle
+                // would put it back into the hole).
+                let ingress = SIMD2(point.x, min(drift.basin(at: i) != nil ? top - looseSnow.cellSize * 0.65 : point.y,
+                                                base - looseSnow.cellSize * 0.65))
                 let unplaced = looseSnow.add(mass: mass, at: ingress, direction: direction,
                                              excludingCircle: (center: end, radius: radius))
                 drift.heights[i] -= (mass - unplaced) / drift.spacing

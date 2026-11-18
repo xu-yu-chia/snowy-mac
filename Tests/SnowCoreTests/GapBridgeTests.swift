@@ -34,16 +34,25 @@ final class GapBridgeTests: XCTestCase {
         return drift.heights.reduce(0, +) * drift.spacing
     }
 
-    func testNarrowSlitIsBridgedOntoTheNeighbouringTop() {
+    func testSnowFallsIntoANarrowSlitInsteadOfPilingOntoTheNeighbour() {
+        // Snow sliding off a full top falls down a narrow slit; it is not handed across to the
+        // neighbouring top (facing ends trading snow piled up into a mound).
         let (simulation, _, right) = world(gap: 8)
-        let before = area(simulation, right)
+        let (control, _, alone) = world(gap: 60)
+        let before = area(simulation, right), controlBefore = area(control, alone)
         var slitGrains = 0
         for _ in 0..<90 {
             simulation.step(dt: 1 / 30, cursor: nil)
+            control.step(dt: 1 / 30, cursor: nil)
             slitGrains = max(slitGrains, grainsInSlit(simulation, from: 398, to: 410))
         }
-        XCTAssertEqual(slitGrains, 0, "Snow fell into the narrow slit")
-        XCTAssertGreaterThan(area(simulation, right), before + 20, "The neighbour received the snow")
+        XCTAssertGreaterThan(slitGrains, 0, "Snow falls into the narrow slit")
+        _ = (before, controlBefore)
+        // Some grains may land on the neighbour's near end, but it never piles up there.
+        let facing = simulation.drifts.first { $0.surface.id == right }!
+        let rise = facing.heights.indices.filter { Float($0) * facing.spacing <= 24 }
+            .map { facing.surface.y - (facing.surface.baseY(at: Float($0) * facing.spacing) - facing.heights[$0]) }
+        XCTAssertLessThanOrEqual(rise.max() ?? 0, 18 + 4, "The neighbour's facing end does not pile up")
     }
 
     func testWideGapStillLetsSnowFallBetweenTheTops() {

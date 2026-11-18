@@ -148,7 +148,7 @@ public final class SnowSimulation {
     var intervalScratch: [Span] = []
     public var pendingTransferMass: Float {
         supportTransfers.reduce(0) { $0 + $1.mass } + snowReleases.reduce(0) { $0 + $1.mass }
-            + carriedContacts.reduce(0) { $0 + $1.mass }
+            + carriedContacts.reduce(0) { $0 + $1.mass } + basins.reduce(0) { $0 + $1.pending }
     }
     var cornerWindDirty = true
 
@@ -258,7 +258,7 @@ public final class SnowSimulation {
         }
         if settleAge >= 0.1 {
             for drift in drifts { drift.settle() }
-            solveBasins()
+            settleBasins(interval: settleAge)
             shedOverloadedCaps()
             settleAge = 0
             meshDirty = true

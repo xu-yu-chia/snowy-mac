@@ -265,6 +265,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSM
             let content = WindViewController()
             content.settings = coordinator.wind
             content.onChange = { [weak coordinator] value in coordinator?.wind = value }
+            content.gusts = coordinator.gusts
+            content.onGustsChange = { [weak coordinator] value in coordinator?.gusts = value }
             let popover = NSPopover()
             popover.behavior = .transient
             popover.animates = !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion

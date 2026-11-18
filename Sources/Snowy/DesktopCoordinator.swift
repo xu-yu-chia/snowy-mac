@@ -56,6 +56,13 @@ final class DesktopCoordinator {
             onStateChange?()
         }
     }
+    /// Gusts swing the set wind (±30°, 60–130%); off, or under Reduce Motion, the wind is steady.
+    var gusts: Bool {
+        didSet {
+            UserDefaults.standard.set(gusts, forKey: "windGusts")
+            onStateChange?()
+        }
+    }
     var tool: SnowTool {
         didSet {
             UserDefaults.standard.set(tool.rawValue, forKey: "cursorTool")
@@ -122,6 +129,7 @@ final class DesktopCoordinator {
         grainSize = GrainSize(rawValue: UserDefaults.standard.string(forKey: "grainSize") ?? "") ?? .normal
         wind = WindSettings(vector: SIMD2(UserDefaults.standard.float(forKey: "windX"),
                                          UserDefaults.standard.float(forKey: "windY")))
+        gusts = UserDefaults.standard.object(forKey: "windGusts") as? Bool ?? true
         tool = SnowTool(rawValue: UserDefaults.standard.string(forKey: "cursorTool") ?? "") ?? .glove
         policy = Self.readPolicy()
         installObservers()
@@ -335,7 +343,10 @@ final class DesktopCoordinator {
                                 && $0.frame.contains(global)
                         }
                     }
-                    display.lights.advance(now: now, wind: self.wind, cursor: pointer,
+                    // One function of the shared frame clock, so every display gusts in step.
+                    let air = self.gusts && !self.policy.reducedMotion ? WindGusts.wind(base: self.wind, at: now) : self.wind
+                    display.renderer.simulation.airflow = air
+                    display.lights.advance(now: now, wind: air, cursor: pointer,
                                            reducedMotion: self.policy.reducedMotion) { point in
                         snapshot.bodies.contains { $0.contains(point) } || isCoveredByOwnWindow(point)
                     }

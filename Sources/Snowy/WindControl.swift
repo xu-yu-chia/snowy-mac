@@ -211,15 +211,18 @@ final class WindPad: NSControl {
 final class WindViewController: NSViewController {
     var onChange: ((WindSettings) -> Void)?
     var onClose: (() -> Void)?
+    var onGustsChange: ((Bool) -> Void)?
     var settings: WindSettings {
         get { pad.settings }
         set { pad.settings = newValue; updateReadout() }
     }
+    var gusts = true { didSet { gustsBox.state = gusts ? .on : .off } }
+    private lazy var gustsBox = NSButton(checkboxWithTitle: "Gusts", target: self, action: #selector(toggleGusts))
     private let pad = WindPad(frame: CGRect(x: 20, y: 62, width: 216, height: 216))
     private let readout = NSTextField(labelWithString: "Calm")
 
     override func loadView() {
-        let background = NSVisualEffectView(frame: CGRect(x: 0, y: 0, width: 256, height: 350))
+        let background = NSVisualEffectView(frame: CGRect(x: 0, y: 0, width: 256, height: 376))
         background.material = .popover
         background.blendingMode = .withinWindow
         background.state = .active
@@ -227,23 +230,23 @@ final class WindViewController: NSViewController {
 
         let title = NSTextField(labelWithString: "Wind")
         title.font = .systemFont(ofSize: 15, weight: .semibold)
-        title.frame = CGRect(x: 46, y: 314, width: 112, height: 22)
+        title.frame = CGRect(x: 46, y: 340, width: 112, height: 22)
         background.addSubview(title)
         let close = NSButton(image: NSImage(systemSymbolName: "xmark", accessibilityDescription: "Close wind control")!,
                              target: self, action: #selector(closeWind))
         close.isBordered = false
         close.contentTintColor = .secondaryLabelColor
-        close.frame = CGRect(x: 17, y: 312, width: 24, height: 24)
+        close.frame = CGRect(x: 17, y: 338, width: 24, height: 24)
         close.setAccessibilityLabel("Close wind control")
         background.addSubview(close)
         let reset = NSButton(title: "Reset", target: self, action: #selector(resetWind))
         reset.bezelStyle = .rounded
         reset.controlSize = .small
-        reset.frame = CGRect(x: 176, y: 312, width: 62, height: 25)
+        reset.frame = CGRect(x: 176, y: 338, width: 62, height: 25)
         reset.setAccessibilityLabel("Reset wind to calm")
         background.addSubview(reset)
 
-        pad.frame = CGRect(x: 20, y: 84, width: 216, height: 216)
+        pad.frame = CGRect(x: 20, y: 110, width: 216, height: 216)
         pad.onChange = { [weak self] value in
             self?.updateReadout()
             self?.onChange?(value)
@@ -252,15 +255,20 @@ final class WindViewController: NSViewController {
         background.addSubview(pad)
         readout.font = .monospacedDigitSystemFont(ofSize: 13, weight: .medium)
         readout.alignment = .center
-        readout.frame = CGRect(x: 20, y: 53, width: 216, height: 20)
+        readout.frame = CGRect(x: 20, y: 79, width: 216, height: 20)
         background.addSubview(readout)
 
         let hint = NSTextField(labelWithString: "Drag from the center to set the wind")
         hint.font = .systemFont(ofSize: 11)
         hint.textColor = .secondaryLabelColor
         hint.alignment = .center
-        hint.frame = CGRect(x: 12, y: 22, width: 232, height: 17)
+        hint.frame = CGRect(x: 12, y: 48, width: 232, height: 17)
         background.addSubview(hint)
+        gustsBox.state = gusts ? .on : .off
+        gustsBox.sizeToFit()
+        gustsBox.frame.origin = CGPoint(x: (256 - gustsBox.frame.width) / 2, y: 16)
+        gustsBox.setAccessibilityHelp("The wind swings around the set direction and rises and falls")
+        background.addSubview(gustsBox)
         preferredContentSize = background.frame.size
         updateReadout()
     }
@@ -286,6 +294,11 @@ final class WindViewController: NSViewController {
         pad.stopMotion()
         settings = WindSettings()
         onChange?(settings)
+    }
+
+    @objc private func toggleGusts() {
+        gusts = gustsBox.state == .on
+        onGustsChange?(gusts)
     }
 
     private func updateReadout() { readout.stringValue = pad.settings.summary }

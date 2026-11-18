@@ -97,13 +97,13 @@ extension SnowSimulation {
             }
         }
         return Raindrop(position: position,
-                        velocity: SIMD2(wind.velocity.x, Self.minimumDropSpeed + depth * Self.dropSpeedRange),
+                        velocity: SIMD2(air.velocity.x, Self.minimumDropSpeed + depth * Self.dropSpeedRange),
                         depth: depth)
     }
 
     private func advanceRaindrop(_ i: Int, area: Float, dt: Float, respawn: Bool = true) {
         var drop = raindrops[i]
-        drop.velocity.x = wind.velocity.x
+        drop.velocity.x = air.velocity.x
         let start = drop.position, end = start + drop.velocity * dt
         if let hit = rainTopHit(from: start, to: end, includeProps: true) {
             let drift = drifts[hit.index]

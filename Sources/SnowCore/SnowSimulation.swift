@@ -92,7 +92,7 @@ public final class SnowSimulation {
     func updateFlakeMassScale() {
         guard !flakes.isEmpty else { flakeMassScale = 0; return }
         let target = Self.meanDeposition * snowfall.density * Self.accumulationPace
-        let fall = max(5, 41.5 + wind.velocity.y * 0.35)
+        let fall = max(5, 41.5 + air.velocity.y * 0.35)
         flakeMassScale = target * size.x * size.y / (Float(flakes.count) * fall * Self.meanFlakeMass)
     }
     public var reducedMotion = false
@@ -100,6 +100,10 @@ public final class SnowSimulation {
     public var wind = WindSettings() {
         didSet { if wind != oldValue { cornerWindDirty = true } }
     }
+    /// The wind moving material feels this frame (the set wind plus gusts). `nil` uses `wind`.
+    /// Corner wind keeps the set wind, so gusts never rebuild caps.
+    public var airflow: WindSettings?
+    var air: WindSettings { airflow ?? wind }
     public var tool: SnowTool = .glove
 
     // Shared only by SnowCore implementation extensions; none of this state is public.
@@ -270,8 +274,8 @@ public final class SnowSimulation {
                 var particle = flakes[i]
                 particle.phase += dt * 0.8
                 if particle.phase > .pi * 2 { particle.phase -= .pi * 2 }
-                let gust = SIMD2(wind + sin(particle.phase) * 9 + self.wind.velocity.x,
-                                 self.wind.velocity.y * 0.35)
+                let gust = SIMD2(wind + sin(particle.phase) * 9 + self.air.velocity.x,
+                                 self.air.velocity.y * 0.35)
                 let wasSliding = particle.isSliding
                 let free = particle.velocity
                 particle.isSliding = false
@@ -305,7 +309,7 @@ public final class SnowSimulation {
         if snowing { stepRainRemnants(dt: dt) } else { stepRain(dt: dt) }
         stepClumps(dt: dt)
         let looseRevision = looseSnow.revision
-        looseSnow.step(dt: dt, wind: self.wind.velocity) { [unowned self] from, to, mass in
+        looseSnow.step(dt: dt, wind: self.air.velocity) { [unowned self] from, to, mass in
             self.landGranularSnow(from: from, to: to, mass: mass)
         }
         if tool == .shovel, let cursor {

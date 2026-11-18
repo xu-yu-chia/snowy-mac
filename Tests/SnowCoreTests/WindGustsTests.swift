@@ -40,6 +40,15 @@ final class WindGustsTests: XCTestCase {
         for step in 0..<100 { XCTAssertEqual(WindGusts.wind(base: WindSettings(), at: Double(step)), WindSettings()) }
     }
 
+    func testNoJumpAfterADayOfUptime() {
+        // The frame clock is uptime; one frame apart must stay one frame apart, even at 24 h.
+        for day in [86_400.0, 2 * 86_400.0] {
+            let before = WindGusts.wind(base: base, at: day - 1.0 / 60), after = WindGusts.wind(base: base, at: day)
+            XCTAssertLessThan(abs(angle(after.headingDegrees, from: before.headingDegrees)), 1)
+            XCTAssertLessThan(abs(after.speedFraction - before.speedFraction), 0.02)
+        }
+    }
+
     func testFiniteForHugeTimes() {
         let gust = WindGusts.wind(base: base, at: 1e9)
         XCTAssertTrue(gust.vector.x.isFinite && gust.vector.y.isFinite)

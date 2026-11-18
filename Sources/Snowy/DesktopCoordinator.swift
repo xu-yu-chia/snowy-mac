@@ -333,7 +333,12 @@ final class DesktopCoordinator {
                     let down = NSEvent.pressedMouseButtons != 0
                     if down || self.draggingWindow { self.refreshMetadata(dragging: down) }
                     self.draggingWindow = down
-                    guard let display, let snapshot = display.snapshot else { return }
+                    guard let display else { return }
+                    // One function of the shared frame clock, so every display gusts in step. Set
+                    // before the snapshot check so the air never freezes while metadata is pending.
+                    let air = self.gusts && !self.policy.reducedMotion ? WindGusts.wind(base: self.wind, at: now) : self.wind
+                    display.renderer.simulation.airflow = air
+                    guard let snapshot = display.snapshot else { return }
                     let pointer = down ? nil : cursor
                     let isCoveredByOwnWindow: (SIMD2<Float>) -> Bool = { point in
                         let global = CGPoint(x: geometry.bounds.minX + CGFloat(point.x),
@@ -343,9 +348,6 @@ final class DesktopCoordinator {
                                 && $0.frame.contains(global)
                         }
                     }
-                    // One function of the shared frame clock, so every display gusts in step.
-                    let air = self.gusts && !self.policy.reducedMotion ? WindGusts.wind(base: self.wind, at: now) : self.wind
-                    display.renderer.simulation.airflow = air
                     display.lights.advance(now: now, wind: air, cursor: pointer,
                                            reducedMotion: self.policy.reducedMotion) { point in
                         snapshot.bodies.contains { $0.contains(point) } || isCoveredByOwnWindow(point)
